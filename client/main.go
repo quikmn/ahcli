@@ -48,6 +48,11 @@ func main() {
 	fmt.Printf("Noise Suppression: %v\n", config.NoiseSuppression)
 	fmt.Println("Servers:")
 	for name, entry := range config.Servers {
-		fmt.Printf(" - %s → %s\n", name, entry.IP)
+		fmt.Printf(" - %s -> %s\n", name, entry.IP)
+	}
+
+	err = connectToServer(config)
+	if err != nil {
+		fmt.Println("Error:", err)
 	}
 }

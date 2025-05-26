@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("✅ Server config loaded:")
+	fmt.Println("Server config loaded:")
 	fmt.Printf("Server Name: %s\n", config.ServerName)
 	fmt.Printf("Port: %d\n", config.ListenPort)
 	fmt.Printf("MOTD: %s\n", config.MOTD)
@@ -48,4 +48,8 @@ func main() {
 	for _, ch := range config.Channels {
 		fmt.Printf(" - %s (speak: %t, listen: %t)\n", ch.Name, ch.AllowSpeak, ch.AllowListen)
 	}
+
+	// This line is crucial!
+	startUDPServer(config)
 }
+
