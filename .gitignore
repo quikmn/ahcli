@@ -1,0 +1,47 @@
+# Binaries
+*.exe
+*.out
+*.o
+*.a
+*.so
+*.dll
+
+# Build output
+/bin/
+/build/
+/dist/
+
+# Dependency directories
+/vendor/
+
+# IDE/editor files
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*~
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Logs and system junk
+*.log
+.DS_Store
+Thumbs.db
+
+# OS-specific
+ehthumbs.db
+Desktop.ini
+
+# Go-related
+*.test
+*.prof
+coverage.out
+
+# Custom runtime files
+*.lock
+*.pid
+client/settings.config
+server/config.json
