@@ -6,6 +6,8 @@ import (
 	"os"
 )
 
+var serverConfig *ServerConfig
+
 type Channel struct {
 	Name        string `json:"name"`
 	AllowSpeak  bool   `json:"allow_speak"`
@@ -39,6 +41,8 @@ func main() {
 		fmt.Println("Error loading config:", err)
 		return
 	}
+
+	serverConfig = config // <- This is the fix
 
 	fmt.Println("Server config loaded:")
 	fmt.Printf("Server Name: %s\n", config.ServerName)

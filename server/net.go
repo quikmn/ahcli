@@ -45,25 +45,60 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 		if err := json.Unmarshal(data, &req); err != nil {
 			return
 		}
-		nickname := pickAvailableNickname(req.Nicklist)
+
+		var nickname string
+		for _, try := range req.Nicklist {
+			if reserveNickname(try, addr) {
+				nickname = try
+				break
+			}
+		}
 		if nickname == "" {
 			reject := common.Reject{Type: "reject", Message: "All nicknames are taken"}
 			sendJSON(conn, addr, reject)
 			return
 		}
 
-		// Register client in state (mock for now)
 		fmt.Printf("Client %s connected from %s\n", nickname, addr.String())
-
 
 		resp := common.ConnectAccepted{
 			Type:     "accept",
 			Nickname: nickname,
 			MOTD:     config.MOTD,
 			Channels: []string{"General", "AFK"}, // TODO: derive from config
-			Users:    []string{"quikmn"},         // TODO: real user state
+			Users:    listNicknames(),
 		}
 		sendJSON(conn, addr, resp)
+
+	case "change_channel":
+		var req struct {
+			Type    string `json:"type"`
+			Channel string `json:"channel"`
+		}
+		if err := json.Unmarshal(data, &req); err != nil {
+			fmt.Println("Malformed change_channel packet from", addr)
+			return
+		}
+
+		if !channelExists(req.Channel) {
+			fmt.Printf("Client at %s tried to switch to invalid channel: %s\n", addr, req.Channel)
+			return
+		}
+
+		if updated := updateClientChannel(addr, req.Channel); updated {
+			fmt.Printf("Client at %s switched to channel: %s\n", addr, req.Channel)
+			ack := map[string]string{
+				"type":    "channel_changed",
+				"channel": req.Channel,
+			}
+			sendJSON(conn, addr, ack)
+		} else {
+			nack := map[string]string{
+				"type":    "error",
+				"message": "Could not switch channel",
+			}
+			sendJSON(conn, addr, nack)
+		}
 	}
 }
 
@@ -74,14 +109,4 @@ func sendJSON(conn *net.UDPConn, addr *net.UDPAddr, v any) {
 		return
 	}
 	conn.WriteToUDP(payload, addr)
-}
-
-func pickAvailableNickname(nicks []string) string {
-	// TODO: use real state later
-	for _, nick := range nicks {
-		if nick != "taken" { // simulate one being taken
-			return nick
-		}
-	}
-	return ""
 }
