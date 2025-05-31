@@ -220,10 +220,15 @@ func keyNameToVKCode(key string) uint16 {
 // StartPTTListener starts polling the PTT key state.
 func StartPTTListener() {
 	go func() {
+		var last bool
 		for {
 			time.Sleep(10 * time.Millisecond)
 			pressed := isKeyDown(pttKeyCode)
-			fmt.Println("[PTT Debug] Polling... Pressed =", pressed)
+
+			if pressed != last {
+				fmt.Printf("[PTT] Debug Polling... Pressed = %v\n", pressed)
+				last = pressed
+			}
 
 			isPressedMu.Lock()
 			isPressed = pressed
