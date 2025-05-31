@@ -49,6 +49,9 @@ func connectToServer(config *ClientConfig) error {
 		var accepted common.ConnectAccepted
 		json.Unmarshal(buffer[:n], &accepted)
 		fmt.Println("Connected as:", accepted.Nickname)
+		if err := startPlayback(); err != nil {
+    		fmt.Println("Playback init failed:", err)
+		}
 		fmt.Println("MOTD:", accepted.MOTD)
 		fmt.Println("Channels:", accepted.Channels)
 		fmt.Println("Users:", accepted.Users)
@@ -62,6 +65,7 @@ func connectToServer(config *ClientConfig) error {
 
 	// Disable read timeout for long-running receive loop
 	conn.SetReadDeadline(time.Time{})
+	serverConn = conn
 
 	// Start background listeners
 	go handleUserInput(conn)
@@ -115,15 +119,39 @@ func handleServerResponses(conn *net.UDPConn) {
 		switch msg["type"] {
 		case "channel_changed":
 			fmt.Println("Server: You are now in channel", msg["channel"])
+
 		case "error":
 			fmt.Println("Server error:", msg["message"])
+
 		case "pong":
 			// silently accepted
+
+		case "audio":
+			var audioMsg struct {
+				Type string  `json:"type"`
+				Data []int16 `json:"data"`
+			}
+			if err := json.Unmarshal(buffer[:n], &audioMsg); err != nil {
+				fmt.Println("Malformed audio packet")
+				continue
+			}
+
+			if len(audioMsg.Data) != framesPerBuffer {
+				continue // discard incorrect-length frame
+			}
+
+			select {
+			case incomingAudio <- audioMsg.Data:
+			default:
+				// drop if playback buffer is full
+			}
+
 		default:
 			fmt.Println("Server:", msg)
 		}
 	}
 }
+
 
 func startPingLoop(conn *net.UDPConn) {
 	for {

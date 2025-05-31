@@ -20,6 +20,17 @@ var state = &ServerState{
 	Clients: make(map[string]*Client),
 }
 
+func getClientByAddr(addr *net.UDPAddr) *Client {
+	state.Lock()
+	defer state.Unlock()
+	for _, client := range state.Clients {
+		if client.Addr.String() == addr.String() {
+			return client
+		}
+	}
+	return nil
+}
+
 // Attempts to reserve a nickname. Returns true if successful.
 func reserveNickname(nick string, addr *net.UDPAddr) bool {
 	state.Lock()

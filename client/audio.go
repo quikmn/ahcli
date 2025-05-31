@@ -1,9 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
-
+	"net"
 	"github.com/gordonklaus/portaudio"
 )
 
@@ -12,7 +13,18 @@ const (
 	framesPerBuffer = 960 // 20ms @ 48kHz, mono
 )
 
-var audioStream *portaudio.Stream
+var (
+	audioStream     *portaudio.Stream
+	playbackStream  *portaudio.Stream
+	incomingAudio   = make(chan []int16, 100)
+	serverConn *net.UDPConn
+)
+
+func audioSend(data []byte) {
+	if serverConn != nil {
+		serverConn.Write(data)
+	}
+}
 
 func InitAudio() error {
 	err := portaudio.Initialize()
@@ -45,11 +57,53 @@ func InitAudio() error {
 					fmt.Println("Error reading from mic:", err)
 					continue
 				}
-				// For now, just log it
-				fmt.Printf("Captured %d samples (PTT active)\n", len(in))
-				// TODO: Encode & send
+
+				packet := map[string]interface{}{
+					"type": "audio",
+					"data": in, // raw int16 slice
+				}
+
+				buf, err := json.Marshal(packet)
+				if err != nil {
+					fmt.Println("Failed to encode audio packet:", err)
+					continue
+				}
+
+				audioSend(buf)
 			} else {
 				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func startPlayback() error {
+	out := make([]int16, framesPerBuffer)
+
+	var err error
+	playbackStream, err = portaudio.OpenDefaultStream(0, 1, sampleRate, len(out), &out)
+	if err != nil {
+		return fmt.Errorf("failed to open playback stream: %v", err)
+	}
+
+	err = playbackStream.Start()
+	if err != nil {
+		return fmt.Errorf("failed to start playback stream: %v", err)
+	}
+
+	go func() {
+		defer playbackStream.Stop()
+		defer playbackStream.Close()
+
+		for frame := range incomingAudio {
+			if len(frame) != framesPerBuffer {
+				continue
+			}
+			copy(out, frame)
+			if err := playbackStream.Write(); err != nil {
+				fmt.Println("Error writing to speaker:", err)
 			}
 		}
 	}()
