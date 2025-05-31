@@ -49,22 +49,27 @@ func InitAudio() error {
 
 		for {
 			if IsPTTActive() {
+				fmt.Println("[PTT] Held, attempting mic read")
+
 				if err := stream.Read(); err != nil {
-					fmt.Println("Error reading from mic:", err)
+					fmt.Println("[PTT] Mic read error:", err)
 					continue
 				}
 
+				fmt.Printf("[PTT] Captured %d samples from mic\n", len(in))
+
 				packet := map[string]interface{}{
 					"type": "audio",
-					"data": in, // raw int16 slice
+					"data": in,
 				}
 
 				buf, err := json.Marshal(packet)
 				if err != nil {
-					fmt.Println("Failed to encode audio packet:", err)
+					fmt.Println("[PTT] Failed to encode audio packet:", err)
 					continue
 				}
 
+				fmt.Printf("[PTT] Sending %d bytes to server\n", len(buf))
 				audioSend(buf)
 			} else {
 				time.Sleep(5 * time.Millisecond)
@@ -95,8 +100,10 @@ func startPlayback() error {
 
 		for frame := range incomingAudio {
 			if len(frame) != framesPerBuffer {
+				fmt.Printf("[PLAYBACK] Dropping frame with invalid length: %d\n", len(frame))
 				continue
 			}
+			fmt.Printf("[PLAYBACK] Received frame: %d samples\n", len(frame))
 			copy(out, frame)
 			if err := playbackStream.Write(); err != nil {
 				fmt.Println("Error writing to speaker:", err)

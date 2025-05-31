@@ -112,7 +112,7 @@ func handleServerResponses(conn *net.UDPConn) {
 
 		var msg map[string]interface{}
 		if err := json.Unmarshal(buffer[:n], &msg); err != nil {
-			fmt.Println("Invalid server message")
+			fmt.Println("[NET] Invalid server message:", err)
 			continue
 		}
 
@@ -132,18 +132,21 @@ func handleServerResponses(conn *net.UDPConn) {
 				Data []int16 `json:"data"`
 			}
 			if err := json.Unmarshal(buffer[:n], &audioMsg); err != nil {
-				fmt.Println("Malformed audio packet")
+				fmt.Println("[NET] Failed to parse audio packet:", err)
 				continue
 			}
 
+			fmt.Printf("[NET] Received audio packet: %d samples\n", len(audioMsg.Data))
+
 			if len(audioMsg.Data) != framesPerBuffer {
-				continue // discard incorrect-length frame
+				fmt.Printf("[NET] Dropping frame with invalid length: %d\n", len(audioMsg.Data))
+				continue
 			}
 
 			select {
 			case incomingAudio <- audioMsg.Data:
 			default:
-				// drop if playback buffer is full
+				fmt.Println("[NET] Audio buffer full, dropping packet")
 			}
 
 		default:
@@ -151,6 +154,7 @@ func handleServerResponses(conn *net.UDPConn) {
 		}
 	}
 }
+
 
 
 func startPingLoop(conn *net.UDPConn) {
