@@ -99,8 +99,14 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 			}
 			sendJSON(conn, addr, nack)
 		}
+
+	case "ping":
+		// Respond to keepalive ping
+		pong := map[string]string{"type": "pong"}
+		sendJSON(conn, addr, pong)
 	}
 }
+
 
 func sendJSON(conn *net.UDPConn, addr *net.UDPAddr, v any) {
 	payload, err := json.Marshal(v)

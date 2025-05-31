@@ -52,19 +52,21 @@ func connectToServer(config *ClientConfig) error {
 		fmt.Println("MOTD:", accepted.MOTD)
 		fmt.Println("Channels:", accepted.Channels)
 		fmt.Println("Users:", accepted.Users)
-
 	case "reject":
 		var reject common.Reject
 		json.Unmarshal(buffer[:n], &reject)
 		return fmt.Errorf("rejected: %s", reject.Message)
-
 	default:
 		return fmt.Errorf("unexpected response")
 	}
 
-	// Start listeners
+	// Disable read timeout for long-running receive loop
+	conn.SetReadDeadline(time.Time{})
+
+	// Start background listeners
 	go handleUserInput(conn)
 	go handleServerResponses(conn)
+	go startPingLoop(conn)
 
 	// Block forever
 	select {}
@@ -100,7 +102,7 @@ func handleServerResponses(conn *net.UDPConn) {
 	for {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			fmt.Println("Disconnected.")
+			fmt.Println("Disconnected:", err)
 			return
 		}
 
@@ -115,8 +117,19 @@ func handleServerResponses(conn *net.UDPConn) {
 			fmt.Println("Server: You are now in channel", msg["channel"])
 		case "error":
 			fmt.Println("Server error:", msg["message"])
+		case "pong":
+			// silently accepted
 		default:
 			fmt.Println("Server:", msg)
 		}
+	}
+}
+
+func startPingLoop(conn *net.UDPConn) {
+	for {
+		ping := map[string]string{"type": "ping"}
+		data, _ := json.Marshal(ping)
+		conn.Write(data)
+		time.Sleep(10 * time.Second)
 	}
 }

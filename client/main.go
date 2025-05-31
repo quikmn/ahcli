@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 )
 
 func main() {
@@ -23,8 +24,33 @@ func main() {
 		fmt.Printf(" - %s -> %s\n", name, entry.IP)
 	}
 
+	// Set PTT key from config
+	pttKeyCode = keyNameToVKCode(config.PTTKey)
+	if pttKeyCode == 0 {
+		fmt.Println("Unsupported PTT key:", config.PTTKey)
+		return
+	}
+
+	// Start PTT listener loop
+	StartPTTListener()
+
+	// Connect to server
 	err = connectToServer(config)
 	if err != nil {
 		fmt.Println("Error:", err)
+		return
 	}
+
+	// For debugging PTT status only
+	go func() {
+		for {
+			if IsPTTActive() {
+				fmt.Println("PTT held")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
+	// Keep the program running
+	select {}
 }

@@ -1,35 +1,51 @@
+# Save as: dump-ahcli-complete.ps1
+# Run from the ahcli root directory
+
+Add-Type -AssemblyName System.Windows.Forms
 $root = Get-Location
-Write-Host "`n=== ahcli Project Dump @ $root ==="
+$sb = [System.Text.StringBuilder]::new()
 
-# List all files
-Write-Host "`n--- File Tree ---"
-Get-ChildItem -Recurse | Format-Table -AutoSize
+$null = $sb.AppendLine("=== ahcli Project Dump @ $root ===")
+$null = $sb.AppendLine("`n--- File Tree ---")
 
-# Dump go.mod
-if (Test-Path "$root\go.mod") {
-    Write-Host "`n--- go.mod ---"
-    Get-Content "$root\go.mod"
+Get-ChildItem -Recurse | ForEach-Object {
+    $null = $sb.AppendLine($_.FullName)
 }
 
-# Dump .go files from folders
-foreach ($comp in "client", "server", "common") {
+# go.mod
+if (Test-Path "$root\go.mod") {
+    $null = $sb.AppendLine("`n--- go.mod ---")
+    $null = $sb.AppendLine((Get-Content "$root\go.mod" -Raw))
+}
+
+# .go files
+$components = @("client", "server", "common")
+foreach ($comp in $components) {
     $path = Join-Path $root $comp
     if (Test-Path $path) {
-        Write-Host "`n=== $comp/ Source Files ==="
+        $null = $sb.AppendLine("`n=== $comp/ Source Files ===")
         Get-ChildItem "$path\*.go" | ForEach-Object {
-            Write-Host "`n--- $($_.FullName) ---`n"
-            Get-Content $_.FullName
+            $null = $sb.AppendLine("`n--- $($_.FullName) ---")
+            $null = $sb.AppendLine((Get-Content $_.FullName -Raw))
         }
     }
 }
 
-# Dump configs
-foreach ($cfg in "client\settings.config", "server\config.json") {
+# config files
+$cfgs = @(
+    "client\settings.config",
+    "server\config.json"
+)
+foreach ($cfg in $cfgs) {
     $fullCfgPath = Join-Path $root $cfg
     if (Test-Path $fullCfgPath) {
-        Write-Host "`n=== Config: $cfg ==="
-        Get-Content $fullCfgPath
+        $null = $sb.AppendLine("`n=== Config: $cfg ===")
+        $null = $sb.AppendLine((Get-Content $fullCfgPath -Raw))
     }
 }
 
-Write-Host "`n=== Dump Complete ==="
+$null = $sb.AppendLine("`n=== Dump Complete ===")
+
+# Copy to clipboard
+[System.Windows.Forms.Clipboard]::SetText($sb.ToString())
+Write-Host "ahcli project dump copied to clipboard."
