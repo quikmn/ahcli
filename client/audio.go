@@ -3,21 +3,22 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 	"net"
+	"time"
+
 	"github.com/gordonklaus/portaudio"
 )
 
 const (
-	sampleRate     = 48000
-	framesPerBuffer = 960 // 20ms @ 48kHz, mono
+	sampleRate      = 48000
+	framesPerBuffer = 960 // 20ms @ 48kHz mono
 )
 
 var (
-	audioStream     *portaudio.Stream
-	playbackStream  *portaudio.Stream
-	incomingAudio   = make(chan []int16, 100)
-	serverConn *net.UDPConn
+	audioStream    *portaudio.Stream
+	playbackStream *portaudio.Stream
+	incomingAudio  = make(chan []int16, 100)
+	serverConn     *net.UDPConn
 )
 
 func audioSend(data []byte) {
@@ -27,11 +28,6 @@ func audioSend(data []byte) {
 }
 
 func InitAudio() error {
-	err := portaudio.Initialize()
-	if err != nil {
-		return fmt.Errorf("portaudio init failed: %v", err)
-	}
-
 	in := make([]int16, framesPerBuffer)
 
 	stream, err := portaudio.OpenDefaultStream(1, 0, sampleRate, len(in), in)
@@ -115,6 +111,11 @@ func ShutdownAudio() {
 	if audioStream != nil {
 		audioStream.Stop()
 		audioStream.Close()
+		audioStream = nil
 	}
-	portaudio.Terminate()
+	if playbackStream != nil {
+		playbackStream.Stop()
+		playbackStream.Close()
+		playbackStream = nil
+	}
 }

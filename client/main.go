@@ -3,9 +3,19 @@ package main
 import (
 	"fmt"
 	"time"
+
+	"github.com/gordonklaus/portaudio"
 )
 
 func main() {
+	// Initialize PortAudio globally, once at startup
+	err := portaudio.Initialize()
+	if err != nil {
+		fmt.Println("PortAudio init failed:", err)
+		return
+	}
+	defer portaudio.Terminate()
+
 	config, err := loadClientConfig("settings.config")
 	if err != nil {
 		fmt.Println("Error loading config:", err)
@@ -34,14 +44,14 @@ func main() {
 	// Start PTT listener loop
 	StartPTTListener()
 
-	// Connect to server
+	// Connect to server (also starts audio input/output)
 	err = connectToServer(config)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	// For debugging PTT status only
+	// Optional: Debug PTT status in console
 	go func() {
 		for {
 			if IsPTTActive() {
@@ -51,6 +61,6 @@ func main() {
 		}
 	}()
 
-	// Keep the program running
+	// Keep the client running
 	select {}
 }
