@@ -1,3 +1,5 @@
+// FILE: client/main.go
+
 package main
 
 import (
@@ -8,7 +10,7 @@ import (
 )
 
 func main() {
-	// Initialize PortAudio globally, once at startup
+	// Initialize PortAudio globally
 	err := portaudio.Initialize()
 	if err != nil {
 		fmt.Println("PortAudio init failed:", err)
@@ -41,26 +43,39 @@ func main() {
 		return
 	}
 
-	// Start PTT listener loop
 	StartPTTListener()
 
-	// Connect to server (also starts audio input/output)
+	// *** CRITICAL FIX: Initialize audio system ***
+	fmt.Println("[MAIN] Initializing audio...")
+	err = InitAudio()
+	if err != nil {
+		fmt.Println("[MAIN] Audio initialization failed:", err)
+		return
+	}
+	fmt.Println("[MAIN] Audio initialized successfully")
+
+	// Test audio pipeline
+	go func() {
+		time.Sleep(3 * time.Second) // Wait for everything to initialize
+		TestAudioPipeline()
+	}()
+
+	// Start connection loop
 	err = connectToServer(config)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	// Optional: Debug PTT status in console
+	// Debug: monitor PTT state
 	go func() {
 		for {
 			if IsPTTActive() {
-				fmt.Println("PTT held")
+				fmt.Println("[PTT] Debug: key held")
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 
-	// Keep the client running
 	select {}
 }

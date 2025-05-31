@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -49,9 +51,6 @@ func connectToServer(config *ClientConfig) error {
 		var accepted common.ConnectAccepted
 		json.Unmarshal(buffer[:n], &accepted)
 		fmt.Println("Connected as:", accepted.Nickname)
-		if err := startPlayback(); err != nil {
-    		fmt.Println("Playback init failed:", err)
-		}
 		fmt.Println("MOTD:", accepted.MOTD)
 		fmt.Println("Channels:", accepted.Channels)
 		fmt.Println("Users:", accepted.Users)
@@ -63,16 +62,13 @@ func connectToServer(config *ClientConfig) error {
 		return fmt.Errorf("unexpected response")
 	}
 
-	// Disable read timeout for long-running receive loop
 	conn.SetReadDeadline(time.Time{})
 	serverConn = conn
 
-	// Start background listeners
 	go handleUserInput(conn)
 	go handleServerResponses(conn)
 	go startPingLoop(conn)
 
-	// Block forever
 	select {}
 }
 
@@ -110,52 +106,62 @@ func handleServerResponses(conn *net.UDPConn) {
 			return
 		}
 
+		// Try to parse JSON first
 		var msg map[string]interface{}
-		if err := json.Unmarshal(buffer[:n], &msg); err != nil {
-			fmt.Println("[NET] Invalid server message:", err)
+		if err := json.Unmarshal(buffer[:n], &msg); err == nil {
+			switch msg["type"] {
+			case "channel_changed":
+				fmt.Println("Server: You are now in channel", msg["channel"])
+			case "error":
+				fmt.Println("Server error:", msg["message"])
+			case "pong":
+				// silently accepted
+			default:
+				fmt.Println("Server:", msg)
+			}
 			continue
 		}
 
-		switch msg["type"] {
-		case "channel_changed":
-			fmt.Println("Server: You are now in channel", msg["channel"])
+		// Not JSON, try raw audio
+		if n < 4 {
+			fmt.Println("[NET] Dropped malformed packet (too small)")
+			continue
+		}
 
-		case "error":
-			fmt.Println("Server error:", msg["message"])
+		// Validate audio packet prefix
+		prefix := binary.LittleEndian.Uint16(buffer[0:2])
+		if prefix != 0x5541 { // 'AU' 
+			fmt.Printf("[NET] Dropped packet with invalid prefix: 0x%04X\n", prefix)
+			continue
+		}
 
-		case "pong":
-			// silently accepted
+		fmt.Printf("[NET] Audio packet received: %d bytes\n", n)
 
-		case "audio":
-			var audioMsg struct {
-				Type string  `json:"type"`
-				Data []int16 `json:"data"`
-			}
-			if err := json.Unmarshal(buffer[:n], &audioMsg); err != nil {
-				fmt.Println("[NET] Failed to parse audio packet:", err)
-				continue
-			}
+		sampleCount := (n - 2) / 2 // skip 2 byte prefix, 2 bytes per sample
+		samples := make([]int16, sampleCount)
+		err = binary.Read(bytes.NewReader(buffer[2:n]), binary.LittleEndian, &samples)
+		if err != nil {
+			fmt.Println("[NET] Failed to decode audio:", err)
+			continue
+		}
 
-			fmt.Printf("[NET] Received audio packet: %d samples\n", len(audioMsg.Data))
+		if len(samples) != framesPerBuffer {
+			fmt.Printf("[NET] Dropped frame with wrong length: got %d, expected %d\n", len(samples), framesPerBuffer)
+			continue
+		}
 
-			if len(audioMsg.Data) != framesPerBuffer {
-				fmt.Printf("[NET] Dropping frame with invalid length: %d\n", len(audioMsg.Data))
-				continue
-			}
+		// Calculate max amplitude for debugging
+		maxAmp := maxAmplitude(samples)
+		fmt.Printf("[NET] Decoded %d samples, max amplitude: %d\n", len(samples), maxAmp)
 
-			select {
-			case incomingAudio <- audioMsg.Data:
-			default:
-				fmt.Println("[NET] Audio buffer full, dropping packet")
-			}
-
+		select {
+		case incomingAudio <- samples:
+			fmt.Printf("[NET] Queued %d samples to playback buffer\n", len(samples))
 		default:
-			fmt.Println("Server:", msg)
+			fmt.Println("[NET] Playback buffer full, dropping packet")
 		}
 	}
 }
-
-
 
 func startPingLoop(conn *net.UDPConn) {
 	for {
