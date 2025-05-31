@@ -104,9 +104,34 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 		// Respond to keepalive ping
 		pong := map[string]string{"type": "pong"}
 		sendJSON(conn, addr, pong)
+
+	case "audio":
+		client := getClientByAddr(addr)
+		if client == nil {
+			fmt.Printf("Received audio from unknown client: %s\n", addr)
+			return
+		}
+
+		// Log reception
+		fmt.Printf("Received audio from %s (%s) in channel %s\n", client.Nickname, addr, client.Channel)
+
+		relayCount := 0
+		state.Lock()
+		for _, other := range state.Clients {
+			if other.Channel == client.Channel && other.Addr.String() != addr.String() {
+				_, err := conn.WriteToUDP(data, other.Addr)
+				if err != nil {
+					fmt.Printf("Error relaying audio to %s: %v\n", other.Addr, err)
+				} else {
+					relayCount++
+				}
+			}
+		}
+		state.Unlock()
+
+		fmt.Printf("Relayed audio to %d peer(s) in channel %s\n", relayCount, client.Channel)
 	}
 }
-
 
 func sendJSON(conn *net.UDPConn, addr *net.UDPAddr, v any) {
 	payload, err := json.Marshal(v)

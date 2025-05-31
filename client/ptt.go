@@ -222,6 +222,7 @@ func StartPTTListener() {
 		for {
 			time.Sleep(10 * time.Millisecond)
 			pressed := isKeyDown(pttKeyCode)
+			fmt.Println("[PTT Debug] Polling... Pressed =", pressed)
 
 			isPressedMu.Lock()
 			isPressed = pressed

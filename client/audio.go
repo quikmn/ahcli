@@ -23,7 +23,14 @@ var (
 
 func audioSend(data []byte) {
 	if serverConn != nil {
-		serverConn.Write(data)
+		n, err := serverConn.Write(data)
+		if err != nil {
+			fmt.Println("[SEND] Error sending audio packet:", err)
+		} else {
+			fmt.Printf("[SEND] Sent %d bytes to server %s\n", n, serverConn.RemoteAddr().String())
+		}
+	} else {
+		fmt.Println("[SEND] Warning: serverConn is nil, cannot send")
 	}
 }
 
