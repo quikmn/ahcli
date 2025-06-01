@@ -1,14 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"strings"
 	"time"
 
 	"ahcli/common"
@@ -55,28 +52,26 @@ func connectToServer(config *ClientConfig) error {
 		
 		currentChannel = "General" // Default channel
 		
-		// Update Web UI if enabled
-		if !isTUIDisabled() {
-			WebTUISetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
-			WebTUISetChannel(currentChannel)
-			WebTUISetChannels(accepted.Channels)
-			
-			// Initialize channel users - put all users in the default channel for now
-			channelUsers := make(map[string][]string)
-			for _, channel := range accepted.Channels {
-				channelUsers[channel] = make([]string, 0)
-			}
-			// Put all users in the default channel initially
-			if len(accepted.Channels) > 0 {
-				channelUsers[currentChannel] = accepted.Users
-			}
-			WebTUISetChannelUsers(channelUsers)
+		// Update Web UI
+		WebTUISetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
+		WebTUISetChannel(currentChannel)
+		WebTUISetChannels(accepted.Channels)
+		
+		// Initialize channel users - put all users in the default channel for now
+		channelUsers := make(map[string][]string)
+		for _, channel := range accepted.Channels {
+			channelUsers[channel] = make([]string, 0)
 		}
+		// Put all users in the default channel initially
+		if len(accepted.Channels) > 0 {
+			channelUsers[currentChannel] = accepted.Users
+		}
+		WebTUISetChannelUsers(channelUsers)
 		
 		LogInfo("Connected as: %s", accepted.Nickname)
 		LogInfo("MOTD: %s", accepted.MOTD)
-		LogDebug("Channels: %v", accepted.Channels)
-		LogDebug("Users: %v", accepted.Users)
+		LogInfo("Channels: %v", accepted.Channels)
+		LogInfo("Users: %v", accepted.Users)
 		
 	case "reject":
 		var reject common.Reject
@@ -89,37 +84,13 @@ func connectToServer(config *ClientConfig) error {
 	conn.SetReadDeadline(time.Time{})
 	serverConn = conn
 
-	// Only start input handler in console mode
-	if isTUIDisabled() {
-		go handleUserInput(conn)
-	}
-	
 	go handleServerResponses(conn)
 	go startPingLoop(conn)
 
 	select {}
 }
 
-func handleUserInput(conn *net.UDPConn) {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		print("> ")
-		inputRaw, err := reader.ReadString('\n')
-		if err != nil {
-			continue
-		}
-		input := strings.TrimSpace(inputRaw)
-
-		if strings.HasPrefix(strings.ToLower(input), "/join ") {
-			channel := strings.TrimSpace(input[6:])
-			changeChannel(channel)
-		} else {
-			println("Unknown command.")
-		}
-	}
-}
-
-// Called from TUI and console input
+// Called from Web UI
 func changeChannel(channel string) {
 	if serverConn == nil {
 		LogError("Not connected to server")
@@ -144,10 +115,8 @@ func handleServerResponses(conn *net.UDPConn) {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			LogError("Disconnected: %v", err)
-			if !isTUIDisabled() {
-				ConsoleTUISetConnected(false, "", "", "")
-				ConsoleTUIAddMessage("Disconnected from server")
-			}
+			WebTUISetConnected(false, "", "", "")
+			WebTUIAddMessage("Disconnected from server", "error")
 			return
 		}
 
@@ -159,36 +128,32 @@ func handleServerResponses(conn *net.UDPConn) {
 				channelName := msg["channel"].(string)
 				currentChannel = channelName
 				
-				if !isTUIDisabled() {
-					ConsoleTUISetChannel(channelName)
-				}
+				WebTUISetChannel(channelName)
 				LogInfo("You are now in channel: %s", channelName)
 				
 			case "error":
 				errorMsg := msg["message"].(string)
-				if !isTUIDisabled() {
-					ConsoleTUIAddMessage(fmt.Sprintf("Server error: %s", errorMsg))
-				}
+				WebTUIAddMessage(fmt.Sprintf("Server error: %s", errorMsg), "error")
 				LogError("Server error: %s", errorMsg)
 				
 			case "pong":
 				// silently accepted
 			default:
-				LogDebug("Server message: %v", msg)
+				LogInfo("Server message: %v", msg)
 			}
 			continue
 		}
 
 		// Not JSON, try raw audio
 		if n < 4 {
-			LogNet("Dropped malformed packet (too small)")
+			LogError("Dropped malformed packet (too small)")
 			continue
 		}
 
 		// Validate audio packet prefix
 		prefix := binary.LittleEndian.Uint16(buffer[0:2])
 		if prefix != 0x5541 { // 'AU' 
-			LogNet("Dropped packet with invalid prefix: 0x%04X", prefix)
+			LogError("Dropped packet with invalid prefix: 0x%04X", prefix)
 			continue
 		}
 
@@ -196,39 +161,34 @@ func handleServerResponses(conn *net.UDPConn) {
 		samples := make([]int16, sampleCount)
 		err = binary.Read(bytes.NewReader(buffer[2:n]), binary.LittleEndian, &samples)
 		if err != nil {
-			LogNet("Failed to decode audio: %v", err)
+			LogError("Failed to decode audio: %v", err)
 			continue
 		}
 
 		if len(samples) != framesPerBuffer {
-			LogNet("Dropped frame with wrong length: got %d, expected %d", len(samples), framesPerBuffer)
+			LogError("Dropped frame with wrong length: got %d, expected %d", len(samples), framesPerBuffer)
 			continue
 		}
 
-		// Update Console TUI with received audio
-		if !isTUIDisabled() {
-			ConsoleTUIIncrementRX()
-			maxAmp := maxAmplitude(samples)
-			if maxAmp > 50 {
-				ConsoleTUISetAudioLevel(int(float64(maxAmp) / 32767.0 * 100))
-			}
+		// Update Web UI with received audio
+		WebTUIIncrementRX()
+		maxAmp := maxAmplitude(samples)
+		if maxAmp > 50 {
+			WebTUISetAudioLevel(int(float64(maxAmp) / 32767.0 * 100))
 		}
 
 		// Calculate max amplitude - only log every 50 frames (once per second)
 		networkFrameCount++
-		maxAmp := maxAmplitude(samples)
 		if maxAmp > 50 && networkFrameCount%50 == 0 {
-			LogNet("Receiving audio (amplitude: %d)", maxAmp)
+			LogInfo("Receiving audio (amplitude: %d)", maxAmp)
 		}
 
 		select {
 		case incomingAudio <- samples:
 			// Successfully queued
 		default:
-			LogNet("Playback buffer full, dropping packet")
-			if !isTUIDisabled() {
-				ConsoleTUIAddMessage("Audio buffer overflow")
-			}
+			LogError("Playback buffer full, dropping packet")
+			WebTUIAddMessage("Audio buffer overflow", "error")
 		}
 	}
 }

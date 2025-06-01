@@ -23,7 +23,7 @@ var (
 
 func audioSend(samples []int16) {
 	if serverConn == nil {
-		LogSend("Warning: serverConn is nil, cannot send")
+		LogError("Warning: serverConn is nil, cannot send")
 		return
 	}
 
@@ -33,21 +33,16 @@ func audioSend(samples []int16) {
 
 	_, err := serverConn.Write(buf)
 	if err != nil {
-		LogSend("Error sending audio packet: %v", err)
-		// Update TUI with error
-		if !isTUIDisabled() {
-			TUISetError("Audio send failed")
-		}
+		LogError("Error sending audio packet: %v", err)
+		WebTUIAddMessage("Audio send failed", "error")
 	} else {
-		// Update TUI with transmitted packet
-		if !isTUIDisabled() {
-			TUIIncrementTX()
-		}
+		// Update Web UI with transmitted packet
+		WebTUIIncrementTX()
 	}
 }
 
 func InitAudio() error {
-	LogAudio("InitAudio() entered")
+	LogInfo("InitAudio() entered")
 
 	// Set up input stream
 	in := make([]int16, framesPerBuffer)
@@ -69,99 +64,85 @@ func InitAudio() error {
 	if err := inStream.Start(); err != nil {
 		return err
 	}
-	LogAudio("Input stream started successfully")
+	LogInfo("Input stream started successfully")
 
-	// Start output stream  
+	// Start output stream
 	if err := outStream.Start(); err != nil {
 		return err
 	}
-	LogAudio("Output stream started successfully")
+	LogInfo("Output stream started successfully")
 
-	// Start input goroutine (DON'T close stream here)
+	// Start input goroutine
 	go func() {
-		LogAudio("Input goroutine started")
+		LogInfo("Input goroutine started")
 		var lastPTTState bool
 		var frameCount int
-		
+
 		for {
 			pttActive := IsPTTActive()
-			
-			// Update Console TUI with PTT state
-			if !isTUIDisabled() {
-				ConsoleTUISetPTT(pttActive)
-			}
-			
+			WebTUISetPTT(pttActive)
+
 			// Only log PTT state changes, not every frame
 			if pttActive != lastPTTState {
 				if pttActive {
-					LogPTT("Started transmitting")
+					LogInfo("Started transmitting")
 					frameCount = 0 // Reset counter when starting transmission
-					if !isTUIDisabled() {
-						ConsoleTUIAddMessage("● Transmitting")
-					}
+					WebTUIAddMessage("● Transmitting", "ptt")
 				} else {
-					LogPTT("Stopped transmitting")
-					if !isTUIDisabled() {
-						ConsoleTUIAddMessage("○ Ready")
-					}
+					LogInfo("Stopped transmitting")
+					WebTUIAddMessage("○ Ready", "info")
 				}
 				lastPTTState = pttActive
 			}
-			
+
 			if pttActive {
 				if err := inStream.Read(); err != nil {
-					LogPTT("Mic read error: %v", err)
+					LogError("Mic read error: %v", err)
 					continue
 				}
-				// Only log every 50 frames (once per second) if there's audio
 				frameCount++
 				maxAmp := maxAmplitude(in)
-				
-				// Update Console TUI with audio level
-				if !isTUIDisabled() && maxAmp > 0 {
+
+				// Update Web UI with audio level
+				if maxAmp > 0 {
 					level := int(float64(maxAmp) / 32767.0 * 100)
-					ConsoleTUISetAudioLevel(level)
+					WebTUISetAudioLevel(level)
 				}
-				
+
 				if maxAmp > 50 && frameCount%50 == 0 {
-					LogPTT("Transmitting audio (amplitude: %d)", maxAmp)
+					LogInfo("Transmitting audio (amplitude: %d)", maxAmp)
 				}
 				audioSend(in)
 			} else {
 				// Reset audio level when not transmitting
-				if !isTUIDisabled() {
-					ConsoleTUISetAudioLevel(0)
-				}
+				WebTUISetAudioLevel(0)
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
 	}()
 
-	// Start playback goroutine (DON'T close stream here)
+	// Start playback goroutine
 	go func() {
-		LogAudio("Playback goroutine started")
+		LogInfo("Playback goroutine started")
 		var playbackFrameCount int
-		
+
 		for samples := range incomingAudio {
 			maxAmp := maxAmplitude(samples)
-			// Only log every 50 frames (once per second) if there's meaningful audio
 			playbackFrameCount++
 			if maxAmp > 50 && playbackFrameCount%50 == 0 {
-				LogPlayback("Playing audio (amplitude: %d)", maxAmp)
+				LogInfo("Playing audio (amplitude: %d)", maxAmp)
 			}
-			
-			// Update Console TUI with received audio level
-			if !isTUIDisabled() && maxAmp > 50 {
+
+			// Update Web UI with received audio level
+			if maxAmp > 50 {
 				level := int(float64(maxAmp) / 32767.0 * 100)
-				ConsoleTUISetAudioLevel(level)
+				WebTUISetAudioLevel(level)
 			}
-			
+
 			copy(out, samples)
 			if err := outStream.Write(); err != nil {
-				LogAudio("Playback error: %v", err)
-				if !isTUIDisabled() {
-					ConsoleTUIAddMessage("Audio playback failed")
-				}
+				LogError("Playback error: %v", err)
+				WebTUIAddMessage("Audio playback failed", "error")
 			}
 		}
 	}()
@@ -200,12 +181,10 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 
 // TestAudioPipeline generates a test tone to verify audio playback works
 func TestAudioPipeline() {
-	LogTest("Starting audio pipeline test...")
-	
-	if !isTUIDisabled() {
-		ConsoleTUIAddMessage("Playing test tone...")
-	}
-	
+	LogInfo("Starting audio pipeline test...")
+
+	WebTUIAddMessage("Playing test tone...", "info")
+
 	// Generate a simple 440Hz sine wave (A note)
 	testSamples := make([]int16, framesPerBuffer)
 	for i := 0; i < framesPerBuffer; i++ {
@@ -214,20 +193,16 @@ func TestAudioPipeline() {
 		amplitude := int16(8000 * math.Sin(angle)) // Moderate volume
 		testSamples[i] = amplitude
 	}
-	
-	LogTest("Generated %d test samples, max amplitude: %d", len(testSamples), maxAmplitude(testSamples))
-	
+
+	LogInfo("Generated %d test samples, max amplitude: %d", len(testSamples), maxAmplitude(testSamples))
+
 	// Send to playback buffer
 	select {
 	case incomingAudio <- testSamples:
-		LogTest("Test audio queued for playback")
-		if !isTUIDisabled() {
-			ConsoleTUIAddMessage("Test tone played successfully")
-		}
+		LogInfo("Test audio queued for playback")
+		WebTUIAddMessage("Test tone played successfully", "success")
 	default:
-		LogTest("Could not queue test audio - buffer full")
-		if !isTUIDisabled() {
-			ConsoleTUIAddMessage("Audio buffer full during test")
-		}
+		LogError("Could not queue test audio - buffer full")
+		WebTUIAddMessage("Audio buffer full during test", "error")
 	}
 }

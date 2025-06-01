@@ -10,13 +10,10 @@ type ServerEntry struct {
 }
 
 type ClientConfig struct {
-	Nickname            []string              `json:"nickname"`
-	PreferredServer     string                `json:"preferred_server"`
-	PTTKey              string                `json:"ptt_key"`
-	VoiceActivation     bool                  `json:"voice_activation_enabled"`
-	ActivationThreshold float64               `json:"activation_threshold"`
-	NoiseSuppression    bool                  `json:"noise_suppression"`
-	Servers             map[string]ServerEntry `json:"servers"`
+	Nickname        []string              `json:"nickname"`
+	PreferredServer string                `json:"preferred_server"`
+	PTTKey          string                `json:"ptt_key"`
+	Servers         map[string]ServerEntry `json:"servers"`
 }
 
 func loadClientConfig(path string) (*ClientConfig, error) {

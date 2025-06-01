@@ -68,7 +68,7 @@ func StartWebServer() (int, error) {
 	http.HandleFunc("/api/state", handleAPIState)
 	http.HandleFunc("/api/command", handleAPICommand)
 	http.HandleFunc("/ws", handleWebSocket)
-	
+
 	LogInfo("Starting web server on port %d", port)
 	
 	go func() {
@@ -227,7 +227,6 @@ func WebTUISetPTT(active bool) {
 	webTUI.Unlock()
 	
 	// Only broadcast PTT changes occasionally to avoid spam
-	// We'll handle this with debouncing in the web UI
 	broadcastUpdate()
 }
 

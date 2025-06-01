@@ -3,7 +3,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,29 +13,14 @@ import (
 	"github.com/gordonklaus/portaudio"
 )
 
-var (
-	noTUI = flag.Bool("no-tui", false, "Disable TUI and use console output")
-)
-
-// Helper function to check if TUI is disabled
-func isTUIDisabled() bool {
-	return *noTUI
-}
-
 func main() {
-	// Parse flags before initializing logger
-	flag.Parse()
-
-	// Initialize logging (parses --debug flag)
+	// Initialize logging
 	InitLogger()
 	defer CloseLogger()
 
 	// Initialize PortAudio globally
 	err := portaudio.Initialize()
 	if err != nil {
-		if isTUIDisabled() {
-			println("PortAudio init failed:", err.Error())
-		}
 		LogError("PortAudio init failed: %v", err)
 		return
 	}
@@ -58,10 +42,6 @@ func main() {
 
 	config, err := loadClientConfig(configPath)
 	if err != nil {
-		if isTUIDisabled() {
-			println("Error loading config:", err.Error())
-			println("Looking for config at:", configPath)
-		}
 		LogError("Error loading config: %v", err)
 		LogError("Config path attempted: %s", configPath)
 		return
@@ -72,9 +52,6 @@ func main() {
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
 	if pttKeyCode == 0 {
-		if isTUIDisabled() {
-			println("Unsupported PTT key:", config.PTTKey)
-		}
 		LogError("Unsupported PTT key: %s", config.PTTKey)
 		return
 	}
@@ -82,34 +59,29 @@ func main() {
 	StartPTTListener()
 
 	// Initialize audio system
-	LogMain("Initializing audio...")
+	LogInfo("Initializing audio system...")
 	err = InitAudio()
 	if err != nil {
-		if isTUIDisabled() {
-			println("Audio initialization failed:", err.Error())
-		}
 		LogError("Audio initialization failed: %v", err)
 		return
 	}
-	LogMain("Audio initialized successfully")
+	LogInfo("Audio initialized successfully")
 
-	// Initialize Web UI (unless disabled)
-	if !isTUIDisabled() {
-		port, err := StartWebServer()
-		if err != nil {
-			LogError("Web server failed: %v", err)
-			fmt.Println("Web server failed:", err)
-			return
-		}
-		
-		WebTUISetPTTKey(config.PTTKey)
-		WebTUIAddMessage("Welcome to AHCLI Voice Chat!", "info")
-		WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
-		WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
-		
-		// Launch Chromium in app mode
-		go launchChromiumApp(port)
+	// Initialize Web UI
+	port, err := StartWebServer()
+	if err != nil {
+		LogError("Web server failed: %v", err)
+		fmt.Println("Web server failed:", err)
+		return
 	}
+	
+	WebTUISetPTTKey(config.PTTKey)
+	WebTUIAddMessage("Welcome to AHCLI Voice Chat!", "info")
+	WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
+	WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
+	
+	// Launch browser
+	go launchBrowser(port)
 
 	// Test audio pipeline (optional)
 	go func() {
@@ -121,33 +93,21 @@ func main() {
 	go func() {
 		err := connectToServer(config)
 		if err != nil {
-			if isTUIDisabled() {
-				println("Connection error:", err.Error())
-			} else {
-				ConsoleTUIAddMessage(fmt.Sprintf("Error: %s", err.Error()))
-			}
 			LogError("Connection error: %v", err)
+			WebTUIAddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			
 			// Exit if connection fails
-			if !isTUIDisabled() {
-				time.Sleep(2 * time.Second)
-			}
+			time.Sleep(2 * time.Second)
 			os.Exit(1)
 		}
 	}()
 
-	// Handle user input
-	if !isTUIDisabled() {
-		// Web UI handles input through HTTP API
-		LogInfo("Web UI started, waiting for connections...")
-		select {} // Keep running
-	} else {
-		// Console mode - just wait
-		select {}
-	}
+	// Web UI handles all interaction through HTTP API
+	LogInfo("Web UI started, waiting for connections...")
+	select {} // Keep running
 }
 
-func launchChromiumApp(port int) {
+func launchBrowser(port int) {
 	// Wait for web server to be ready
 	time.Sleep(2 * time.Second)
 	
@@ -162,7 +122,7 @@ func launchChromiumApp(port int) {
 		return
 	}
 	
-	// Fallback to system Chrome/Edge
+	// Fallback to system browsers
 	browsers := [][]string{
 		{"chrome", "--app=" + url, "--disable-web-security", "--disable-features=TranslateUI"},
 		{"msedge", "--app=" + url, "--disable-web-security"},
