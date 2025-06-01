@@ -1,17 +1,15 @@
 //go:build windows
 
+// FILE: client/ptt.go
+
 package main
 
 import (
 	"sync"
-	"syscall"
 	"time"
 )
 
 var (
-	user32            = syscall.NewLazyDLL("user32.dll")
-	procGetKeyState   = user32.NewProc("GetAsyncKeyState")
-
 	isPressedMu sync.RWMutex
 	isPressed   bool
 	pttKeyCode  uint16 = 0xA0 // VK_LSHIFT, change to F1 = 0x70, Space = 0x20, etc.
@@ -235,10 +233,4 @@ func IsPTTActive() bool {
 	isPressedMu.RLock()
 	defer isPressedMu.RUnlock()
 	return isPressed
-}
-
-// isKeyDown returns true if the given virtual key is down.
-func isKeyDown(vk uint16) bool {
-	ret, _, _ := procGetKeyState.Call(uintptr(vk))
-	return (ret & 0x8000) != 0
 }

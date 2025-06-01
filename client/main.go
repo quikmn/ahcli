@@ -5,10 +5,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"time"
+	"syscall"
+	"unsafe"
 
 	"github.com/gordonklaus/portaudio"
 )
@@ -18,7 +17,7 @@ func main() {
 	InitLogger()
 	defer CloseLogger()
 
-	// Initialize application state - THE NEW HOTNESS
+	// Initialize application state
 	InitAppState()
 	LogInfo("Application state initialized")
 
@@ -30,28 +29,14 @@ func main() {
 	}
 	defer portaudio.Terminate()
 
-	// Get executable directory for config file
-	exePath, err := os.Executable()
-	if err != nil {
-		LogError("Failed to get executable path: %v", err)
-		exePath = ""
-	}
-	configDir := filepath.Dir(exePath)
-	configPath := filepath.Join(configDir, "settings.config")
-
-	// Try current directory if exe dir doesn't have config (for development)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		configPath = "settings.config"
-	}
-
-	config, err := loadClientConfig(configPath)
+	// Load config
+	config, err := loadClientConfig("settings.config")
 	if err != nil {
 		LogError("Error loading config: %v", err)
-		LogError("Config path attempted: %s", configPath)
 		return
 	}
 
-	LogInfo("Client config loaded successfully from: %s", configPath)
+	LogInfo("Client config loaded successfully")
 
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
@@ -71,32 +56,56 @@ func main() {
 	}
 	LogInfo("Audio initialized successfully")
 
-	// Initialize Web UI
+	// Initialize Web UI server
 	port, err := StartWebServer()
 	if err != nil {
 		LogError("Web server failed: %v", err)
 		fmt.Println("Web server failed:", err)
 		return
 	}
-	
-	// Set initial state in AppState as well as WebTUI
+	LogInfo("Web server started on port %d", port)
+
+	// Set initial state in both systems
 	appState.SetPTTKey(config.PTTKey)
 	WebTUISetPTTKey(config.PTTKey)
 	
-	// Welcome messages to both systems
-	appState.AddMessage("Welcome to AHCLI Voice Chat!", "info")
-	WebTUIAddMessage("Welcome to AHCLI Voice Chat!", "info")
+	// Welcome messages
+	appState.AddMessage("AHCLI Voice Chat ready!", "info")
+	WebTUIAddMessage("AHCLI Voice Chat ready!", "info")
 	
-	appState.AddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
-	WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
+	appState.AddMessage(fmt.Sprintf("Hold %s to transmit", config.PTTKey), "info")
+	WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit", config.PTTKey), "info")
 	
-	appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
-	WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
-	
-	// Launch browser
-	go launchBrowser(port)
+	appState.AddMessage("Right-click system tray to open UI", "info")
+	WebTUIAddMessage("Right-click system tray to open UI", "info")
 
-	// Test audio pipeline (optional)
+	// Create hidden window for tray messages
+	err = createHiddenWindow()
+	if err != nil {
+		LogError("Failed to create hidden window: %v", err)
+		return
+	}
+
+	// Initialize system tray
+	err = InitTray(port)
+	if err != nil {
+		LogError("Failed to initialize system tray: %v", err)
+		return
+	}
+	LogInfo("System tray initialized")
+
+	// Set up AppState observer to update tray when connection changes
+	appState.AddObserver(func(change StateChange) {
+		if change.Type == "connection" {
+			if data, ok := change.Data.(map[string]interface{}); ok {
+				if connected, ok := data["connected"].(bool); ok {
+					UpdateTrayIcon(connected)
+				}
+			}
+		}
+	})
+
+	// Test audio pipeline
 	go func() {
 		time.Sleep(3 * time.Second)
 		TestAudioPipeline()
@@ -104,58 +113,100 @@ func main() {
 
 	// Start connection in background
 	go func() {
+		appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
+		WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
+		
 		err := connectToServer(config)
 		if err != nil {
 			LogError("Connection error: %v", err)
 			
-			// Update both systems
 			appState.AddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			WebTUIAddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			
-			// Exit if connection fails
 			time.Sleep(2 * time.Second)
 			os.Exit(1)
 		}
 	}()
 
-	// Web UI handles all interaction through HTTP API
-	LogInfo("Web UI started, waiting for connections...")
-	LogInfo("AppState bridge is active - dual-write pattern ready!")
-	select {} // Keep running
+	LogInfo("AHCLI running in background - check system tray")
+	LogInfo("Left-click tray icon to open UI, right-click for menu")
+
+	// Auto-launch UI on startup for immediate access
+	go func() {
+		time.Sleep(1 * time.Second) // Wait for tray to settle
+		openVoiceChatUI()           // Launch browser automatically
+	}()
+
+	// Run Windows message loop
+	runMessageLoop()
 }
 
-func launchBrowser(port int) {
-	// Wait for web server to be ready
-	time.Sleep(2 * time.Second)
+// createHiddenWindow creates an invisible window to receive tray messages
+func createHiddenWindow() error {
+	hInstance, _, _ := getModuleHandle.Call(0)
 	
-	url := fmt.Sprintf("http://localhost:%d", port)
+	className := syscall.StringToUTF16Ptr("AHCLITrayWindow")
 	
-	// Try bundled Chromium first
-	chromiumPath := "./chromium/launch-app.bat"
-	if _, err := os.Stat(chromiumPath); err == nil {
-		LogInfo("Launching bundled Chromium...")
-		cmd := exec.Command("cmd", "/c", chromiumPath, strconv.Itoa(port))
-		cmd.Start()
-		return
+	// Register window class
+	wc := WNDCLASSEX{
+		CbSize:        uint32(unsafe.Sizeof(WNDCLASSEX{})),
+		LpfnWndProc:   syscall.NewCallback(windowProc),
+		HInstance:     hInstance,
+		LpszClassName: className,
 	}
 	
-	// Fallback to system browsers
-	browsers := [][]string{
-		{"chrome", "--app=" + url, "--disable-web-security", "--disable-features=TranslateUI"},
-		{"msedge", "--app=" + url, "--disable-web-security"},
-		{"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "--app=" + url},
-		{"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "--app=" + url},
+	atom, _, _ := registerClassEx.Call(uintptr(unsafe.Pointer(&wc)))
+	if atom == 0 {
+		return fmt.Errorf("failed to register window class")
 	}
 	
-	for _, browser := range browsers {
-		cmd := exec.Command(browser[0], browser[1:]...)
-		if err := cmd.Start(); err == nil {
-			LogInfo("Launched browser: %s", browser[0])
-			return
+	// Create hidden window
+	hwnd, _, _ = createWindowEx.Call(
+		0,                    // dwExStyle
+		uintptr(unsafe.Pointer(className)), // lpClassName
+		0,                    // lpWindowName
+		0,                    // dwStyle
+		0, 0, 0, 0,          // x, y, width, height
+		0,                    // hWndParent
+		0,                    // hMenu
+		hInstance,            // hInstance
+		0,                    // lpParam
+	)
+	
+	if hwnd == 0 {
+		return fmt.Errorf("failed to create hidden window")
+	}
+	
+	return nil
+}
+
+// windowProc handles Windows messages for our hidden window
+func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
+	switch msg {
+	case WM_TRAYICON:
+		HandleTrayMessage(lParam)
+		return 0
+	default:
+		ret, _, _ := defWindowProc.Call(hwnd, msg, wParam, lParam)
+		return ret
+	}
+}
+
+// runMessageLoop runs the Windows message loop
+func runMessageLoop() {
+	var msg MSG
+	for {
+		bRet, _, _ := getMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if bRet == 0 { // WM_QUIT
+			break
+		} else if bRet == 1 { // Regular message
+			translateMessage.Call(uintptr(unsafe.Pointer(&msg)))
+			dispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		}
+		// bRet == -1 is error, but we'll continue
 	}
 	
-	// Final fallback - default browser
-	LogInfo("Opening in default browser...")
-	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	// Cleanup before exit
+	CleanupTray()
+	LogInfo("Message loop ended, AHCLI shutting down")
 }
