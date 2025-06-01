@@ -52,6 +52,7 @@ var (
 	}
 	wsClients = make(map[*websocket.Conn]bool)
 	wsMutex   sync.Mutex
+	observersSetup = false
 )
 
 func StartWebServer() (int, error) {
@@ -79,7 +80,136 @@ func StartWebServer() (int, error) {
 		}
 	}()
 	
+	// Set up AppState observers - WebTUI becomes pure observer!
+	setupAppStateObservers()
+	
 	return port, nil
+}
+
+// setupAppStateObservers makes WebTUI a pure observer of AppState changes
+func setupAppStateObservers() {
+	if observersSetup {
+		return // Only setup once
+	}
+	
+	LogInfo("Setting up WebTUI as AppState observer...")
+	
+	appState.AddObserver(func(change StateChange) {
+		switch change.Type {
+		case "ptt":
+			if active, ok := change.Data.(bool); ok {
+				LogDebug("Observer: PTT state changed to %t", active)
+				webTUI.Lock()
+				webTUI.PTTActive = active
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "audio_level":
+			if level, ok := change.Data.(int); ok {
+				webTUI.Lock()
+				webTUI.AudioLevel = level
+				webTUI.Unlock()
+				// Don't broadcast every audio level change - too spammy
+			}
+			
+		case "connection":
+			if data, ok := change.Data.(map[string]interface{}); ok {
+				LogDebug("Observer: Connection state changed")
+				webTUI.Lock()
+				if connected, ok := data["connected"].(bool); ok {
+					webTUI.Connected = connected
+				}
+				if nickname, ok := data["nickname"].(string); ok {
+					webTUI.Nickname = nickname
+				}
+				if serverName, ok := data["serverName"].(string); ok {
+					webTUI.ServerName = serverName
+				}
+				if webTUI.Connected {
+					webTUI.ConnectionTime = time.Now()
+				}
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "channel":
+			if channel, ok := change.Data.(string); ok {
+				LogDebug("Observer: Channel changed to %s", channel)
+				webTUI.Lock()
+				webTUI.CurrentChannel = channel
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "channels":
+			if channels, ok := change.Data.([]string); ok {
+				LogDebug("Observer: Channels list updated")
+				webTUI.Lock()
+				webTUI.Channels = channels
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "channel_users":
+			if channelUsers, ok := change.Data.(map[string][]string); ok {
+				LogDebug("Observer: Channel users updated")
+				webTUI.Lock()
+				webTUI.ChannelUsers = channelUsers
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "message":
+			if msg, ok := change.Data.(AppMessage); ok {
+				LogDebug("Observer: New message - %s", msg.Message)
+				webTUI.Lock()
+				webMsg := WebMessage{
+					Timestamp: msg.Timestamp,
+					Message:   msg.Message,
+					Type:      msg.Type,
+				}
+				webTUI.Messages = append(webTUI.Messages, webMsg)
+				
+				// Keep only last 100 messages
+				if len(webTUI.Messages) > 100 {
+					webTUI.Messages = webTUI.Messages[len(webTUI.Messages)-100:]
+				}
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "ptt_key":
+			if keyName, ok := change.Data.(string); ok {
+				LogDebug("Observer: PTT key changed to %s", keyName)
+				webTUI.Lock()
+				webTUI.PTTKey = keyName
+				webTUI.Unlock()
+				broadcastUpdate()
+			}
+			
+		case "packets_rx":
+			if packets, ok := change.Data.(int); ok {
+				webTUI.Lock()
+				webTUI.PacketsRx = packets
+				webTUI.Unlock()
+				// Only broadcast batched updates (every 10 packets)
+				broadcastUpdate()
+			}
+			
+		case "packets_tx":
+			if packets, ok := change.Data.(int); ok {
+				webTUI.Lock()
+				webTUI.PacketsTx = packets
+				webTUI.Unlock()
+				// Only broadcast batched updates (every 10 packets)
+				broadcastUpdate()
+			}
+		}
+	})
+	
+	observersSetup = true
+	LogInfo("WebTUI observers setup complete - now pure observer of AppState!")
 }
 
 func findAvailablePort(startPort int) int {
@@ -184,103 +314,55 @@ func broadcastUpdate() {
 	}
 }
 
-// Web TUI update functions - these now update BOTH WebTUI and AppState
+// LEGACY WebTUI functions - these still exist for backward compatibility during transition
+// But now they're mostly redundant since WebTUI is an observer
+
 func WebTUISetConnected(connected bool, nickname, serverName, motd string) {
-	webTUI.Lock()
-	webTUI.Connected = connected
-	webTUI.Nickname = nickname
-	webTUI.ServerName = serverName
+	// Still doing dual updates during transition
 	if connected {
-		webTUI.ConnectionTime = time.Now()
-	}
-	webTUI.Unlock()
-	
-	if connected {
-		// DUAL-WRITE: Also update AppState
 		appState.AddMessage(fmt.Sprintf("Connected as %s", nickname), "success")
 		WebTUIAddMessage(fmt.Sprintf("Connected as %s", nickname), "success")
 		
 		appState.AddMessage(motd, "info")
 		WebTUIAddMessage(motd, "info")
 	} else {
-		// DUAL-WRITE: Also update AppState
 		appState.AddMessage("Disconnected from server", "error")
 		WebTUIAddMessage("Disconnected from server", "error")
 	}
-	
-	broadcastUpdate()
 }
 
 func WebTUISetChannel(channel string) {
-	webTUI.Lock()
-	webTUI.CurrentChannel = channel
-	webTUI.Unlock()
-	
-	// DUAL-WRITE: Also update AppState
+	// Still doing dual updates during transition
 	appState.AddMessage(fmt.Sprintf("Joined channel: %s", channel), "success")
 	WebTUIAddMessage(fmt.Sprintf("Joined channel: %s", channel), "success")
-	broadcastUpdate()
 }
 
 func WebTUISetChannels(channels []string) {
-	webTUI.Lock()
-	webTUI.Channels = channels
-	webTUI.Unlock()
-	
-	broadcastUpdate()
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUISetChannelUsers(channelUsers map[string][]string) {
-	webTUI.Lock()
-	webTUI.ChannelUsers = channelUsers
-	webTUI.Unlock()
-	
-	broadcastUpdate()
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUISetPTT(active bool) {
-	webTUI.Lock()
-	webTUI.PTTActive = active
-	webTUI.Unlock()
-	
-	// Only broadcast PTT changes occasionally to avoid spam
-	broadcastUpdate()
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUISetAudioLevel(level int) {
-	webTUI.Lock()
-	webTUI.AudioLevel = level
-	webTUI.Unlock()
-	
-	// Don't broadcast every audio level change - too spammy
-	// Web UI will poll for this or we'll batch updates
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUIIncrementRX() {
-	webTUI.Lock()
-	webTUI.PacketsRx++
-	packets := webTUI.PacketsRx
-	webTUI.Unlock()
-	
-	// Batch network updates - only broadcast every 10 packets
-	if packets%10 == 0 {
-		broadcastUpdate()
-	}
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUIIncrementTX() {
-	webTUI.Lock()
-	webTUI.PacketsTx++
-	packets := webTUI.PacketsTx
-	webTUI.Unlock()
-	
-	// Batch network updates
-	if packets%10 == 0 {
-		broadcastUpdate()
-	}
+	// Observer handles this now, but keeping function for compatibility
 }
 
 func WebTUIAddMessage(message, msgType string) {
+	// Legacy function - still used during transition
 	webTUI.Lock()
 	timestamp := time.Now().Format("15:04:05")
 	webMsg := WebMessage{
@@ -300,9 +382,5 @@ func WebTUIAddMessage(message, msgType string) {
 }
 
 func WebTUISetPTTKey(keyName string) {
-	webTUI.Lock()
-	webTUI.PTTKey = keyName
-	webTUI.Unlock()
-	
-	broadcastUpdate()
+	// Observer handles this now, but keeping function for compatibility
 }

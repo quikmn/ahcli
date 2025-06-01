@@ -65,19 +65,13 @@ func main() {
 	}
 	LogInfo("Web server started on port %d", port)
 
-	// Set initial state in both systems
+	// PURE APPSTATE: Only update AppState - observer handles WebTUI
 	appState.SetPTTKey(config.PTTKey)
-	WebTUISetPTTKey(config.PTTKey)
 	
-	// Welcome messages
+	// Welcome messages - PURE APPSTATE only
 	appState.AddMessage("AHCLI Voice Chat ready!", "info")
-	WebTUIAddMessage("AHCLI Voice Chat ready!", "info")
-	
 	appState.AddMessage(fmt.Sprintf("Hold %s to transmit", config.PTTKey), "info")
-	WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit", config.PTTKey), "info")
-	
 	appState.AddMessage("Right-click system tray to open UI", "info")
-	WebTUIAddMessage("Right-click system tray to open UI", "info")
 
 	// Create hidden window for tray messages
 	err = createHiddenWindow()
@@ -113,15 +107,15 @@ func main() {
 
 	// Start connection in background
 	go func() {
+		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
-		WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
 		
 		err := connectToServer(config)
 		if err != nil {
 			LogError("Connection error: %v", err)
 			
+			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			appState.AddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
-			WebTUIAddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			
 			time.Sleep(2 * time.Second)
 			os.Exit(1)
@@ -130,8 +124,9 @@ func main() {
 
 	LogInfo("AHCLI running in background - check system tray")
 	LogInfo("Left-click tray icon to open UI, right-click for menu")
+	LogInfo("🎯 SEPARATION OF CONCERNS COMPLETE - Core systems are now pure AppState!")
 
-	// Auto-launch UI on startup for immediate access
+	// Auto-launch UI on startup
 	go func() {
 		time.Sleep(1 * time.Second) // Wait for tray to settle
 		openVoiceChatUI()           // Launch browser automatically

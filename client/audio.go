@@ -37,13 +37,11 @@ func audioSend(samples []int16) {
 	if err != nil {
 		LogError("Error sending audio packet: %v", err)
 		
-		// DUAL-WRITE: Update both systems
+		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.AddMessage("Audio send failed", "error")
-		WebTUIAddMessage("Audio send failed", "error")
 	} else {
-		// DUAL-WRITE: Update transmitted packet count in both systems
+		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.IncrementTX()
-		WebTUIIncrementTX()
 	}
 }
 
@@ -87,9 +85,8 @@ func InitAudio() error {
 		for {
 			pttActive := IsPTTActive()
 			
-			// DUAL-WRITE: Update PTT state in both systems
+			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			appState.SetPTTActive(pttActive)
-			WebTUISetPTT(pttActive)
 
 			// Only log PTT state changes, not every frame
 			if pttActive != lastPTTState {
@@ -97,15 +94,13 @@ func InitAudio() error {
 					LogInfo("Started transmitting")
 					frameCount = 0 // Reset counter when starting transmission
 					
-					// DUAL-WRITE: Update both systems with transmission message
+					// PURE APPSTATE: Only update AppState - observer handles WebTUI
 					appState.AddMessage("● Transmitting", "ptt")
-					WebTUIAddMessage("● Transmitting", "ptt")
 				} else {
 					LogInfo("Stopped transmitting")
 					
-					// DUAL-WRITE: Update both systems with ready message
+					// PURE APPSTATE: Only update AppState - observer handles WebTUI
 					appState.AddMessage("○ Ready", "info")
-					WebTUIAddMessage("○ Ready", "info")
 				}
 				lastPTTState = pttActive
 			}
@@ -118,11 +113,10 @@ func InitAudio() error {
 				frameCount++
 				maxAmp := maxAmplitude(in)
 
-				// DUAL-WRITE: Update audio level in both systems
+				// PURE APPSTATE: Only update AppState - observer handles WebTUI
 				if maxAmp > 0 {
 					level := int(float64(maxAmp) / 32767.0 * 100)
 					appState.SetAudioLevel(level)
-					WebTUISetAudioLevel(level)
 				}
 
 				if maxAmp > 50 && frameCount%50 == 0 {
@@ -130,9 +124,8 @@ func InitAudio() error {
 				}
 				audioSend(in)
 			} else {
-				// DUAL-WRITE: Reset audio level in both systems when not transmitting
+				// PURE APPSTATE: Reset audio level - observer handles WebTUI
 				appState.SetAudioLevel(0)
-				WebTUISetAudioLevel(0)
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
@@ -150,20 +143,18 @@ func InitAudio() error {
 				LogInfo("Playing audio (amplitude: %d)", maxAmp)
 			}
 
-			// DUAL-WRITE: Update received audio level in both systems
+			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			if maxAmp > 50 {
 				level := int(float64(maxAmp) / 32767.0 * 100)
 				appState.SetAudioLevel(level)
-				WebTUISetAudioLevel(level)
 			}
 
 			copy(out, samples)
 			if err := outStream.Write(); err != nil {
 				LogError("Playback error: %v", err)
 				
-				// DUAL-WRITE: Update both systems with playback error
+				// PURE APPSTATE: Only update AppState - observer handles WebTUI
 				appState.AddMessage("Audio playback failed", "error")
-				WebTUIAddMessage("Audio playback failed", "error")
 			}
 		}
 	}()
@@ -204,9 +195,8 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 func TestAudioPipeline() {
 	LogInfo("Starting audio pipeline test...")
 
-	// DUAL-WRITE: Update both systems with test message
+	// PURE APPSTATE: Only update AppState - observer handles WebTUI
 	appState.AddMessage("Playing test tone...", "info")
-	WebTUIAddMessage("Playing test tone...", "info")
 
 	// Generate a simple 440Hz sine wave (A note)
 	testSamples := make([]int16, framesPerBuffer)
@@ -224,14 +214,12 @@ func TestAudioPipeline() {
 	case incomingAudio <- testSamples:
 		LogInfo("Test audio queued for playback")
 		
-		// DUAL-WRITE: Update both systems with success message
+		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.AddMessage("Test tone played successfully", "success")
-		WebTUIAddMessage("Test tone played successfully", "success")
 	default:
 		LogError("Could not queue test audio - buffer full")
 		
-		// DUAL-WRITE: Update both systems with error message
+		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.AddMessage("Audio buffer full during test", "error")
-		WebTUIAddMessage("Audio buffer full during test", "error")
 	}
 }
