@@ -1,3 +1,5 @@
+// FILE: client/audio.go
+
 package main
 
 import (
@@ -34,9 +36,13 @@ func audioSend(samples []int16) {
 	_, err := serverConn.Write(buf)
 	if err != nil {
 		LogError("Error sending audio packet: %v", err)
+		
+		// DUAL-WRITE: Update both systems
+		appState.AddMessage("Audio send failed", "error")
 		WebTUIAddMessage("Audio send failed", "error")
 	} else {
-		// Update Web UI with transmitted packet
+		// DUAL-WRITE: Update transmitted packet count in both systems
+		appState.IncrementTX()
 		WebTUIIncrementTX()
 	}
 }
@@ -80,6 +86,9 @@ func InitAudio() error {
 
 		for {
 			pttActive := IsPTTActive()
+			
+			// DUAL-WRITE: Update PTT state in both systems
+			appState.SetPTTActive(pttActive)
 			WebTUISetPTT(pttActive)
 
 			// Only log PTT state changes, not every frame
@@ -87,9 +96,15 @@ func InitAudio() error {
 				if pttActive {
 					LogInfo("Started transmitting")
 					frameCount = 0 // Reset counter when starting transmission
+					
+					// DUAL-WRITE: Update both systems with transmission message
+					appState.AddMessage("● Transmitting", "ptt")
 					WebTUIAddMessage("● Transmitting", "ptt")
 				} else {
 					LogInfo("Stopped transmitting")
+					
+					// DUAL-WRITE: Update both systems with ready message
+					appState.AddMessage("○ Ready", "info")
 					WebTUIAddMessage("○ Ready", "info")
 				}
 				lastPTTState = pttActive
@@ -103,9 +118,10 @@ func InitAudio() error {
 				frameCount++
 				maxAmp := maxAmplitude(in)
 
-				// Update Web UI with audio level
+				// DUAL-WRITE: Update audio level in both systems
 				if maxAmp > 0 {
 					level := int(float64(maxAmp) / 32767.0 * 100)
+					appState.SetAudioLevel(level)
 					WebTUISetAudioLevel(level)
 				}
 
@@ -114,7 +130,8 @@ func InitAudio() error {
 				}
 				audioSend(in)
 			} else {
-				// Reset audio level when not transmitting
+				// DUAL-WRITE: Reset audio level in both systems when not transmitting
+				appState.SetAudioLevel(0)
 				WebTUISetAudioLevel(0)
 				time.Sleep(5 * time.Millisecond)
 			}
@@ -133,15 +150,19 @@ func InitAudio() error {
 				LogInfo("Playing audio (amplitude: %d)", maxAmp)
 			}
 
-			// Update Web UI with received audio level
+			// DUAL-WRITE: Update received audio level in both systems
 			if maxAmp > 50 {
 				level := int(float64(maxAmp) / 32767.0 * 100)
+				appState.SetAudioLevel(level)
 				WebTUISetAudioLevel(level)
 			}
 
 			copy(out, samples)
 			if err := outStream.Write(); err != nil {
 				LogError("Playback error: %v", err)
+				
+				// DUAL-WRITE: Update both systems with playback error
+				appState.AddMessage("Audio playback failed", "error")
 				WebTUIAddMessage("Audio playback failed", "error")
 			}
 		}
@@ -183,6 +204,8 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 func TestAudioPipeline() {
 	LogInfo("Starting audio pipeline test...")
 
+	// DUAL-WRITE: Update both systems with test message
+	appState.AddMessage("Playing test tone...", "info")
 	WebTUIAddMessage("Playing test tone...", "info")
 
 	// Generate a simple 440Hz sine wave (A note)
@@ -200,9 +223,15 @@ func TestAudioPipeline() {
 	select {
 	case incomingAudio <- testSamples:
 		LogInfo("Test audio queued for playback")
+		
+		// DUAL-WRITE: Update both systems with success message
+		appState.AddMessage("Test tone played successfully", "success")
 		WebTUIAddMessage("Test tone played successfully", "success")
 	default:
 		LogError("Could not queue test audio - buffer full")
+		
+		// DUAL-WRITE: Update both systems with error message
+		appState.AddMessage("Audio buffer full during test", "error")
 		WebTUIAddMessage("Audio buffer full during test", "error")
 	}
 }

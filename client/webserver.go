@@ -1,3 +1,5 @@
+// FILE: client/webserver.go
+
 package main
 
 import (
@@ -118,11 +120,18 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 	switch cmd.Command {
 	case "join":
 		changeChannel(cmd.Args)
+		
+		// DUAL-WRITE: Update both systems with join message
+		appState.AddMessage(fmt.Sprintf("Joining channel: %s", cmd.Args), "info")
 		WebTUIAddMessage(fmt.Sprintf("Joining channel: %s", cmd.Args), "info")
 	case "quit":
+		// DUAL-WRITE: Update both systems with quit message
+		appState.AddMessage("Disconnecting...", "info")
 		WebTUIAddMessage("Disconnecting...", "info")
 		// Could trigger graceful shutdown here
 	default:
+		// DUAL-WRITE: Update both systems with unknown command message
+		appState.AddMessage(fmt.Sprintf("Unknown command: %s", cmd.Command), "error")
 		WebTUIAddMessage(fmt.Sprintf("Unknown command: %s", cmd.Command), "error")
 	}
 	
@@ -175,7 +184,7 @@ func broadcastUpdate() {
 	}
 }
 
-// Web TUI update functions
+// Web TUI update functions - these now update BOTH WebTUI and AppState
 func WebTUISetConnected(connected bool, nickname, serverName, motd string) {
 	webTUI.Lock()
 	webTUI.Connected = connected
@@ -187,9 +196,15 @@ func WebTUISetConnected(connected bool, nickname, serverName, motd string) {
 	webTUI.Unlock()
 	
 	if connected {
+		// DUAL-WRITE: Also update AppState
+		appState.AddMessage(fmt.Sprintf("Connected as %s", nickname), "success")
 		WebTUIAddMessage(fmt.Sprintf("Connected as %s", nickname), "success")
+		
+		appState.AddMessage(motd, "info")
 		WebTUIAddMessage(motd, "info")
 	} else {
+		// DUAL-WRITE: Also update AppState
+		appState.AddMessage("Disconnected from server", "error")
 		WebTUIAddMessage("Disconnected from server", "error")
 	}
 	
@@ -201,6 +216,8 @@ func WebTUISetChannel(channel string) {
 	webTUI.CurrentChannel = channel
 	webTUI.Unlock()
 	
+	// DUAL-WRITE: Also update AppState
+	appState.AddMessage(fmt.Sprintf("Joined channel: %s", channel), "success")
 	WebTUIAddMessage(fmt.Sprintf("Joined channel: %s", channel), "success")
 	broadcastUpdate()
 }
@@ -242,10 +259,11 @@ func WebTUISetAudioLevel(level int) {
 func WebTUIIncrementRX() {
 	webTUI.Lock()
 	webTUI.PacketsRx++
+	packets := webTUI.PacketsRx
 	webTUI.Unlock()
 	
 	// Batch network updates - only broadcast every 10 packets
-	if webTUI.PacketsRx%10 == 0 {
+	if packets%10 == 0 {
 		broadcastUpdate()
 	}
 }
@@ -253,10 +271,11 @@ func WebTUIIncrementRX() {
 func WebTUIIncrementTX() {
 	webTUI.Lock()
 	webTUI.PacketsTx++
+	packets := webTUI.PacketsTx
 	webTUI.Unlock()
 	
 	// Batch network updates
-	if webTUI.PacketsTx%10 == 0 {
+	if packets%10 == 0 {
 		broadcastUpdate()
 	}
 }

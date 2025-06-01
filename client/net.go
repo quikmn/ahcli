@@ -1,3 +1,5 @@
+// FILE: client/net.go
+
 package main
 
 import (
@@ -52,9 +54,16 @@ func connectToServer(config *ClientConfig) error {
 		
 		currentChannel = "General" // Default channel
 		
-		// Update Web UI
+		// DUAL-WRITE: Update connection status in both systems
+		appState.SetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
 		WebTUISetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
+		
+		// DUAL-WRITE: Update channel info in both systems
+		appState.SetChannel(currentChannel)
 		WebTUISetChannel(currentChannel)
+		
+		// DUAL-WRITE: Update channels list in both systems
+		appState.SetChannels(accepted.Channels)
 		WebTUISetChannels(accepted.Channels)
 		
 		// Initialize channel users - put all users in the default channel for now
@@ -66,6 +75,9 @@ func connectToServer(config *ClientConfig) error {
 		if len(accepted.Channels) > 0 {
 			channelUsers[currentChannel] = accepted.Users
 		}
+		
+		// DUAL-WRITE: Update channel users in both systems
+		appState.SetChannelUsers(channelUsers)
 		WebTUISetChannelUsers(channelUsers)
 		
 		LogInfo("Connected as: %s", accepted.Nickname)
@@ -115,7 +127,12 @@ func handleServerResponses(conn *net.UDPConn) {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			LogError("Disconnected: %v", err)
+			
+			// DUAL-WRITE: Update disconnection in both systems
+			appState.SetConnected(false, "", "", "")
 			WebTUISetConnected(false, "", "", "")
+			
+			appState.AddMessage("Disconnected from server", "error")
 			WebTUIAddMessage("Disconnected from server", "error")
 			return
 		}
@@ -128,11 +145,16 @@ func handleServerResponses(conn *net.UDPConn) {
 				channelName := msg["channel"].(string)
 				currentChannel = channelName
 				
+				// DUAL-WRITE: Update channel in both systems
+				appState.SetChannel(channelName)
 				WebTUISetChannel(channelName)
 				LogInfo("You are now in channel: %s", channelName)
 				
 			case "error":
 				errorMsg := msg["message"].(string)
+				
+				// DUAL-WRITE: Update error message in both systems
+				appState.AddMessage(fmt.Sprintf("Server error: %s", errorMsg), "error")
 				WebTUIAddMessage(fmt.Sprintf("Server error: %s", errorMsg), "error")
 				LogError("Server error: %s", errorMsg)
 				
@@ -170,11 +192,16 @@ func handleServerResponses(conn *net.UDPConn) {
 			continue
 		}
 
-		// Update Web UI with received audio
+		// DUAL-WRITE: Update received packet count in both systems
+		appState.IncrementRX()
 		WebTUIIncrementRX()
+		
 		maxAmp := maxAmplitude(samples)
 		if maxAmp > 50 {
-			WebTUISetAudioLevel(int(float64(maxAmp) / 32767.0 * 100))
+			// DUAL-WRITE: Update audio level in both systems
+			level := int(float64(maxAmp) / 32767.0 * 100)
+			appState.SetAudioLevel(level)
+			WebTUISetAudioLevel(level)
 		}
 
 		// Calculate max amplitude - only log every 50 frames (once per second)
@@ -188,6 +215,9 @@ func handleServerResponses(conn *net.UDPConn) {
 			// Successfully queued
 		default:
 			LogError("Playback buffer full, dropping packet")
+			
+			// DUAL-WRITE: Update buffer overflow message in both systems
+			appState.AddMessage("Audio buffer overflow", "error")
 			WebTUIAddMessage("Audio buffer overflow", "error")
 		}
 	}

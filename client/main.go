@@ -18,6 +18,10 @@ func main() {
 	InitLogger()
 	defer CloseLogger()
 
+	// Initialize application state - THE NEW HOTNESS
+	InitAppState()
+	LogInfo("Application state initialized")
+
 	// Initialize PortAudio globally
 	err := portaudio.Initialize()
 	if err != nil {
@@ -75,9 +79,18 @@ func main() {
 		return
 	}
 	
+	// Set initial state in AppState as well as WebTUI
+	appState.SetPTTKey(config.PTTKey)
 	WebTUISetPTTKey(config.PTTKey)
+	
+	// Welcome messages to both systems
+	appState.AddMessage("Welcome to AHCLI Voice Chat!", "info")
 	WebTUIAddMessage("Welcome to AHCLI Voice Chat!", "info")
+	
+	appState.AddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
 	WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
+	
+	appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
 	WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
 	
 	// Launch browser
@@ -94,6 +107,9 @@ func main() {
 		err := connectToServer(config)
 		if err != nil {
 			LogError("Connection error: %v", err)
+			
+			// Update both systems
+			appState.AddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			WebTUIAddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
 			
 			// Exit if connection fails
@@ -104,6 +120,7 @@ func main() {
 
 	// Web UI handles all interaction through HTTP API
 	LogInfo("Web UI started, waiting for connections...")
+	LogInfo("AppState bridge is active - dual-write pattern ready!")
 	select {} // Keep running
 }
 
