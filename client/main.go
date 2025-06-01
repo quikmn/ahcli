@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -41,16 +42,32 @@ func main() {
 	}
 	defer portaudio.Terminate()
 
-	config, err := loadClientConfig("settings.config")
+	// Get executable directory for config file
+	exePath, err := os.Executable()
+	if err != nil {
+		LogError("Failed to get executable path: %v", err)
+		exePath = ""
+	}
+	configDir := filepath.Dir(exePath)
+	configPath := filepath.Join(configDir, "settings.config")
+
+	// Try current directory if exe dir doesn't have config (for development)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		configPath = "settings.config"
+	}
+
+	config, err := loadClientConfig(configPath)
 	if err != nil {
 		if isTUIDisabled() {
 			println("Error loading config:", err.Error())
+			println("Looking for config at:", configPath)
 		}
 		LogError("Error loading config: %v", err)
+		LogError("Config path attempted: %s", configPath)
 		return
 	}
 
-	LogInfo("Client config loaded successfully")
+	LogInfo("Client config loaded successfully from: %s", configPath)
 
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
