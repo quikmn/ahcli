@@ -3,7 +3,6 @@ package main
 import (
 	"ahcli/common"
 	"encoding/json"
-	"fmt"
 	"net"
 )
 
@@ -14,17 +13,17 @@ func startUDPServer(config *ServerConfig) {
 	}
 	conn, err := net.ListenUDP("udp", &addr)
 	if err != nil {
-		fmt.Println("Failed to start UDP server:", err)
+		LogError("Failed to start UDP server: %v", err)
 		return
 	}
 	defer conn.Close()
-	fmt.Printf("Listening on UDP %d...\n", config.ListenPort)
+	LogInfo("Listening on UDP %d...", config.ListenPort)
 
 	buffer := make([]byte, 4096)
 	for {
 		n, clientAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			fmt.Println("UDP read error:", err)
+			LogError("UDP read error: %v", err)
 			continue
 		}
 
@@ -59,14 +58,21 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 				return
 			}
 
-			fmt.Printf("Client %s connected from %s\n", nickname, addr.String())
+			LogClient("Client %s connected from %s", nickname, addr.String())
+
+			// Get channel names from config
+			channelNames := make([]string, len(config.Channels))
+			for i, ch := range config.Channels {
+				channelNames[i] = ch.Name
+			}
 
 			resp := common.ConnectAccepted{
-				Type:     "accept",
-				Nickname: nickname,
-				MOTD:     config.MOTD,
-				Channels: []string{"General", "AFK"}, // TODO: derive from config
-				Users:    listNicknames(),
+				Type:       "accept",
+				Nickname:   nickname,
+				ServerName: config.ServerName, // Use server name from config
+				MOTD:       config.MOTD,
+				Channels:   channelNames,
+				Users:      listNicknames(),
 			}
 			sendJSON(conn, addr, resp)
 
@@ -76,17 +82,17 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 				Channel string `json:"channel"`
 			}
 			if err := json.Unmarshal(data, &req); err != nil {
-				fmt.Println("Malformed change_channel packet from", addr)
+				LogError("Malformed change_channel packet from %s", addr)
 				return
 			}
 
 			if !channelExists(req.Channel) {
-				fmt.Printf("Client at %s tried to switch to invalid channel: %s\n", addr, req.Channel)
+				LogClient("Client at %s tried to switch to invalid channel: %s", addr, req.Channel)
 				return
 			}
 
 			if updated := updateClientChannel(addr, req.Channel); updated {
-				fmt.Printf("Client at %s switched to channel: %s\n", addr, req.Channel)
+				LogClient("Client at %s switched to channel: %s", addr, req.Channel)
 				ack := map[string]string{
 					"type":    "channel_changed",
 					"channel": req.Channel,
@@ -110,19 +116,19 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 	// Not JSON: treat as raw audio
 	client := getClientByAddr(addr)
 	if client == nil {
-		fmt.Printf("Received audio from unknown client: %s\n", addr)
+		LogAudio("Received audio from unknown client: %s", addr)
 		return
 	}
 
 	// Log and forward raw audio
-	fmt.Printf("[AUDIO] %s (%s) sent %d bytes to channel %s\n", client.Nickname, addr, len(data), client.Channel)
+	LogAudio("%s (%s) sent %d bytes to channel %s", client.Nickname, addr, len(data), client.Channel)
 	relayCount := 0
 	state.Lock()
 	for _, other := range state.Clients {
 		if other.Channel == client.Channel && other.Addr.String() != addr.String() {
 			_, err := conn.WriteToUDP(data, other.Addr)
 			if err != nil {
-				fmt.Printf("[AUDIO] Relay to %s failed: %v\n", other.Addr, err)
+				LogAudio("Relay to %s failed: %v", other.Addr, err)
 			} else {
 				relayCount++
 			}
@@ -130,13 +136,13 @@ func handlePacket(conn *net.UDPConn, data []byte, addr *net.UDPAddr, config *Ser
 	}
 	state.Unlock()
 
-	fmt.Printf("[AUDIO] Relayed to %d peer(s)\n", relayCount)
+	LogAudio("Relayed to %d peer(s)", relayCount)
 }
 
 func sendJSON(conn *net.UDPConn, addr *net.UDPAddr, v any) {
 	payload, err := json.Marshal(v)
 	if err != nil {
-		fmt.Println("Marshal error:", err)
+		LogError("Marshal error: %v", err)
 		return
 	}
 	conn.WriteToUDP(payload, addr)

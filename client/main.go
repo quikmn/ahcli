@@ -3,79 +3,165 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/gordonklaus/portaudio"
 )
 
+var (
+	noTUI = flag.Bool("no-tui", false, "Disable TUI and use console output")
+)
+
+// Helper function to check if TUI is disabled
+func isTUIDisabled() bool {
+	return *noTUI
+}
+
 func main() {
+	// Parse flags before initializing logger
+	flag.Parse()
+
+	// Initialize logging (parses --debug flag)
+	InitLogger()
+	defer CloseLogger()
+
 	// Initialize PortAudio globally
 	err := portaudio.Initialize()
 	if err != nil {
-		fmt.Println("PortAudio init failed:", err)
+		if isTUIDisabled() {
+			println("PortAudio init failed:", err.Error())
+		}
+		LogError("PortAudio init failed: %v", err)
 		return
 	}
 	defer portaudio.Terminate()
 
 	config, err := loadClientConfig("settings.config")
 	if err != nil {
-		fmt.Println("Error loading config:", err)
+		if isTUIDisabled() {
+			println("Error loading config:", err.Error())
+		}
+		LogError("Error loading config: %v", err)
 		return
 	}
 
-	fmt.Println("Client config loaded:")
-	fmt.Printf("Preferred Nicknames: %v\n", config.Nickname)
-	fmt.Printf("Preferred Server: %s\n", config.PreferredServer)
-	fmt.Printf("PTT Key: %s\n", config.PTTKey)
-	fmt.Printf("Voice Activation: %v\n", config.VoiceActivation)
-	fmt.Printf("Threshold: %f\n", config.ActivationThreshold)
-	fmt.Printf("Noise Suppression: %v\n", config.NoiseSuppression)
-	fmt.Println("Servers:")
-	for name, entry := range config.Servers {
-		fmt.Printf(" - %s -> %s\n", name, entry.IP)
-	}
+	LogInfo("Client config loaded successfully")
 
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
 	if pttKeyCode == 0 {
-		fmt.Println("Unsupported PTT key:", config.PTTKey)
+		if isTUIDisabled() {
+			println("Unsupported PTT key:", config.PTTKey)
+		}
+		LogError("Unsupported PTT key: %s", config.PTTKey)
 		return
 	}
 
 	StartPTTListener()
 
-	// *** CRITICAL FIX: Initialize audio system ***
-	fmt.Println("[MAIN] Initializing audio...")
+	// Initialize audio system
+	LogMain("Initializing audio...")
 	err = InitAudio()
 	if err != nil {
-		fmt.Println("[MAIN] Audio initialization failed:", err)
+		if isTUIDisabled() {
+			println("Audio initialization failed:", err.Error())
+		}
+		LogError("Audio initialization failed: %v", err)
 		return
 	}
-	fmt.Println("[MAIN] Audio initialized successfully")
+	LogMain("Audio initialized successfully")
 
-	// Test audio pipeline
+	// Initialize Web UI (unless disabled)
+	if !isTUIDisabled() {
+		port, err := StartWebServer()
+		if err != nil {
+			LogError("Web server failed: %v", err)
+			fmt.Println("Web server failed:", err)
+			return
+		}
+		
+		WebTUISetPTTKey(config.PTTKey)
+		WebTUIAddMessage("Welcome to AHCLI Voice Chat!", "info")
+		WebTUIAddMessage(fmt.Sprintf("Hold %s to transmit audio", config.PTTKey), "info")
+		WebTUIAddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
+		
+		// Launch Chromium in app mode
+		go launchChromiumApp(port)
+	}
+
+	// Test audio pipeline (optional)
 	go func() {
-		time.Sleep(3 * time.Second) // Wait for everything to initialize
+		time.Sleep(3 * time.Second)
 		TestAudioPipeline()
 	}()
 
-	// Start connection loop
-	err = connectToServer(config)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	// Debug: monitor PTT state
+	// Start connection in background
 	go func() {
-		for {
-			if IsPTTActive() {
-				fmt.Println("[PTT] Debug: key held")
+		err := connectToServer(config)
+		if err != nil {
+			if isTUIDisabled() {
+				println("Connection error:", err.Error())
+			} else {
+				ConsoleTUIAddMessage(fmt.Sprintf("Error: %s", err.Error()))
 			}
-			time.Sleep(100 * time.Millisecond)
+			LogError("Connection error: %v", err)
+			
+			// Exit if connection fails
+			if !isTUIDisabled() {
+				time.Sleep(2 * time.Second)
+			}
+			os.Exit(1)
 		}
 	}()
 
-	select {}
+	// Handle user input
+	if !isTUIDisabled() {
+		// Web UI handles input through HTTP API
+		LogInfo("Web UI started, waiting for connections...")
+		select {} // Keep running
+	} else {
+		// Console mode - just wait
+		select {}
+	}
+}
+
+func launchChromiumApp(port int) {
+	// Wait for web server to be ready
+	time.Sleep(2 * time.Second)
+	
+	url := fmt.Sprintf("http://localhost:%d", port)
+	
+	// Try bundled Chromium first
+	chromiumPath := "./chromium/launch-app.bat"
+	if _, err := os.Stat(chromiumPath); err == nil {
+		LogInfo("Launching bundled Chromium...")
+		cmd := exec.Command("cmd", "/c", chromiumPath, strconv.Itoa(port))
+		cmd.Start()
+		return
+	}
+	
+	// Fallback to system Chrome/Edge
+	browsers := [][]string{
+		{"chrome", "--app=" + url, "--disable-web-security", "--disable-features=TranslateUI"},
+		{"msedge", "--app=" + url, "--disable-web-security"},
+		{"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "--app=" + url},
+		{"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "--app=" + url},
+	}
+	
+	for _, browser := range browsers {
+		cmd := exec.Command(browser[0], browser[1:]...)
+		if err := cmd.Start(); err == nil {
+			LogInfo("Launched browser: %s", browser[0])
+			return
+		}
+	}
+	
+	// Final fallback - default browser
+	LogInfo("Opening in default browser...")
+	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }

@@ -1,47 +1,35 @@
 # Binaries
 *.exe
-*.out
-*.o
-*.a
-*.so
 *.dll
+*.so
+*.dylib
 
-# Build output
-/bin/
+# Go build artifacts
 /build/
-/dist/
-
-# Dependency directories
 /vendor/
 
-# IDE/editor files
+# Chromium bundle (too large for git)
+/chromium/
+
+# Logs
+*.log
+client.log
+server.log
+
+# IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
-*.swn
-*.bak
-*.tmp
-*~
 
-# VSCode
-.vscode/
-*.code-workspace
-
-# Logs and system junk
-*.log
+# OS files
 .DS_Store
 Thumbs.db
 
-# OS-specific
-ehthumbs.db
-Desktop.ini
+# Temporary files
+*.tmp
+*.temp
 
-# Go-related
-*.test
-*.prof
-coverage.out
-
-# Custom runtime files
-*.lock
-*.pid
-client/settings.config
-server/config.json
+# Local config overrides (optional - you might want to commit these)
+# settings.config
+# config.json

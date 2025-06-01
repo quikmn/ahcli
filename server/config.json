@@ -1,0 +1,11 @@
+{
+  "server_name": "ahcli bunker",
+  "listen_port": 4422,
+  "shared_key": "your-secure-key-here",
+  "admin_key": "admin-secret",
+  "motd": "Welcome to ahcli.",
+  "channels": [
+    { "name": "General", "allow_speak": true },
+    { "name": "AFK", "allow_speak": false, "allow_listen": false }
+  ]
+}

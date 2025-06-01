@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 	"net"
 	"time"
@@ -24,7 +23,7 @@ var (
 
 func audioSend(samples []int16) {
 	if serverConn == nil {
-		fmt.Println("[SEND] Warning: serverConn is nil, cannot send")
+		LogSend("Warning: serverConn is nil, cannot send")
 		return
 	}
 
@@ -32,22 +31,29 @@ func audioSend(samples []int16) {
 	binary.LittleEndian.PutUint16(buf[0:2], 0x5541) // Prefix 'AU'
 	binary.Write(sliceWriter(buf[2:]), binary.LittleEndian, samples)
 
-	n, err := serverConn.Write(buf)
+	_, err := serverConn.Write(buf)
 	if err != nil {
-		fmt.Println("[SEND] Error sending audio packet:", err)
+		LogSend("Error sending audio packet: %v", err)
+		// Update TUI with error
+		if !isTUIDisabled() {
+			TUISetError("Audio send failed")
+		}
 	} else {
-		fmt.Printf("[SEND] Sent %d bytes to server %s\n", n, serverConn.RemoteAddr().String())
+		// Update TUI with transmitted packet
+		if !isTUIDisabled() {
+			TUIIncrementTX()
+		}
 	}
 }
 
 func InitAudio() error {
-	fmt.Println("[AUDIO] InitAudio() entered")
+	LogAudio("InitAudio() entered")
 
 	// Set up input stream
 	in := make([]int16, framesPerBuffer)
 	inStream, err := portaudio.OpenDefaultStream(1, 0, sampleRate, len(in), in)
 	if err != nil {
-		return fmt.Errorf("failed to open input stream: %v", err)
+		return err
 	}
 	audioStream = inStream
 
@@ -55,35 +61,77 @@ func InitAudio() error {
 	out := make([]int16, framesPerBuffer)
 	outStream, err := portaudio.OpenDefaultStream(0, 1, sampleRate, len(out), &out)
 	if err != nil {
-		return fmt.Errorf("failed to open output stream: %v", err)
+		return err
 	}
 	playbackStream = outStream
 
 	// Start input stream
 	if err := inStream.Start(); err != nil {
-		return fmt.Errorf("failed to start input stream: %v", err)
+		return err
 	}
-	fmt.Println("[AUDIO] Input stream started successfully")
+	LogAudio("Input stream started successfully")
 
 	// Start output stream  
 	if err := outStream.Start(); err != nil {
-		return fmt.Errorf("failed to start output stream: %v", err)
+		return err
 	}
-	fmt.Println("[AUDIO] Output stream started successfully")
+	LogAudio("Output stream started successfully")
 
 	// Start input goroutine (DON'T close stream here)
 	go func() {
-		fmt.Println("[AUDIO] Input goroutine started")
+		LogAudio("Input goroutine started")
+		var lastPTTState bool
+		var frameCount int
+		
 		for {
-			if IsPTTActive() {
-				fmt.Println("[PTT] Held, attempting mic read")
+			pttActive := IsPTTActive()
+			
+			// Update Console TUI with PTT state
+			if !isTUIDisabled() {
+				ConsoleTUISetPTT(pttActive)
+			}
+			
+			// Only log PTT state changes, not every frame
+			if pttActive != lastPTTState {
+				if pttActive {
+					LogPTT("Started transmitting")
+					frameCount = 0 // Reset counter when starting transmission
+					if !isTUIDisabled() {
+						ConsoleTUIAddMessage("● Transmitting")
+					}
+				} else {
+					LogPTT("Stopped transmitting")
+					if !isTUIDisabled() {
+						ConsoleTUIAddMessage("○ Ready")
+					}
+				}
+				lastPTTState = pttActive
+			}
+			
+			if pttActive {
 				if err := inStream.Read(); err != nil {
-					fmt.Println("[PTT] Mic read error:", err)
+					LogPTT("Mic read error: %v", err)
 					continue
 				}
-				fmt.Printf("[PTT] Captured %d samples, max amplitude: %d\n", len(in), maxAmplitude(in))
+				// Only log every 50 frames (once per second) if there's audio
+				frameCount++
+				maxAmp := maxAmplitude(in)
+				
+				// Update Console TUI with audio level
+				if !isTUIDisabled() && maxAmp > 0 {
+					level := int(float64(maxAmp) / 32767.0 * 100)
+					ConsoleTUISetAudioLevel(level)
+				}
+				
+				if maxAmp > 50 && frameCount%50 == 0 {
+					LogPTT("Transmitting audio (amplitude: %d)", maxAmp)
+				}
 				audioSend(in)
 			} else {
+				// Reset audio level when not transmitting
+				if !isTUIDisabled() {
+					ConsoleTUISetAudioLevel(0)
+				}
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
@@ -91,14 +139,29 @@ func InitAudio() error {
 
 	// Start playback goroutine (DON'T close stream here)
 	go func() {
-		fmt.Println("[AUDIO] Playback goroutine started")
+		LogAudio("Playback goroutine started")
+		var playbackFrameCount int
+		
 		for samples := range incomingAudio {
-			fmt.Printf("[PLAYBACK] Playing %d samples, max amplitude: %d\n", len(samples), maxAmplitude(samples))
+			maxAmp := maxAmplitude(samples)
+			// Only log every 50 frames (once per second) if there's meaningful audio
+			playbackFrameCount++
+			if maxAmp > 50 && playbackFrameCount%50 == 0 {
+				LogPlayback("Playing audio (amplitude: %d)", maxAmp)
+			}
+			
+			// Update Console TUI with received audio level
+			if !isTUIDisabled() && maxAmp > 50 {
+				level := int(float64(maxAmp) / 32767.0 * 100)
+				ConsoleTUISetAudioLevel(level)
+			}
+			
 			copy(out, samples)
 			if err := outStream.Write(); err != nil {
-				fmt.Println("[AUDIO] Playback error:", err)
-			} else {
-				fmt.Println("[PLAYBACK] Successfully wrote to output stream")
+				LogAudio("Playback error: %v", err)
+				if !isTUIDisabled() {
+					ConsoleTUIAddMessage("Audio playback failed")
+				}
 			}
 		}
 	}()
@@ -137,7 +200,11 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 
 // TestAudioPipeline generates a test tone to verify audio playback works
 func TestAudioPipeline() {
-	fmt.Println("[TEST] Starting audio pipeline test...")
+	LogTest("Starting audio pipeline test...")
+	
+	if !isTUIDisabled() {
+		ConsoleTUIAddMessage("Playing test tone...")
+	}
 	
 	// Generate a simple 440Hz sine wave (A note)
 	testSamples := make([]int16, framesPerBuffer)
@@ -148,13 +215,19 @@ func TestAudioPipeline() {
 		testSamples[i] = amplitude
 	}
 	
-	fmt.Printf("[TEST] Generated %d test samples, max amplitude: %d\n", len(testSamples), maxAmplitude(testSamples))
+	LogTest("Generated %d test samples, max amplitude: %d", len(testSamples), maxAmplitude(testSamples))
 	
 	// Send to playback buffer
 	select {
 	case incomingAudio <- testSamples:
-		fmt.Println("[TEST] Test audio queued for playback")
+		LogTest("Test audio queued for playback")
+		if !isTUIDisabled() {
+			ConsoleTUIAddMessage("Test tone played successfully")
+		}
 	default:
-		fmt.Println("[TEST] Could not queue test audio - buffer full")
+		LogTest("Could not queue test audio - buffer full")
+		if !isTUIDisabled() {
+			ConsoleTUIAddMessage("Audio buffer full during test")
+		}
 	}
 }

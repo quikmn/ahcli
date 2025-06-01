@@ -14,6 +14,8 @@ import (
 	"ahcli/common"
 )
 
+var currentChannel string
+
 func connectToServer(config *ClientConfig) error {
 	target := config.Servers[config.PreferredServer].IP
 	raddr, err := net.ResolveUDPAddr("udp", target)
@@ -40,7 +42,7 @@ func connectToServer(config *ClientConfig) error {
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, _, err := conn.ReadFromUDP(buffer)
 	if err != nil {
-		return fmt.Errorf("no response from server: %v", err)
+		return err
 	}
 
 	var resp map[string]interface{}
@@ -50,22 +52,48 @@ func connectToServer(config *ClientConfig) error {
 	case "accept":
 		var accepted common.ConnectAccepted
 		json.Unmarshal(buffer[:n], &accepted)
-		fmt.Println("Connected as:", accepted.Nickname)
-		fmt.Println("MOTD:", accepted.MOTD)
-		fmt.Println("Channels:", accepted.Channels)
-		fmt.Println("Users:", accepted.Users)
+		
+		currentChannel = "General" // Default channel
+		
+		// Update Web UI if enabled
+		if !isTUIDisabled() {
+			WebTUISetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
+			WebTUISetChannel(currentChannel)
+			WebTUISetChannels(accepted.Channels)
+			
+			// Initialize channel users - put all users in the default channel for now
+			channelUsers := make(map[string][]string)
+			for _, channel := range accepted.Channels {
+				channelUsers[channel] = make([]string, 0)
+			}
+			// Put all users in the default channel initially
+			if len(accepted.Channels) > 0 {
+				channelUsers[currentChannel] = accepted.Users
+			}
+			WebTUISetChannelUsers(channelUsers)
+		}
+		
+		LogInfo("Connected as: %s", accepted.Nickname)
+		LogInfo("MOTD: %s", accepted.MOTD)
+		LogDebug("Channels: %v", accepted.Channels)
+		LogDebug("Users: %v", accepted.Users)
+		
 	case "reject":
 		var reject common.Reject
 		json.Unmarshal(buffer[:n], &reject)
-		return fmt.Errorf("rejected: %s", reject.Message)
+		return err
 	default:
-		return fmt.Errorf("unexpected response")
+		return err
 	}
 
 	conn.SetReadDeadline(time.Time{})
 	serverConn = conn
 
-	go handleUserInput(conn)
+	// Only start input handler in console mode
+	if isTUIDisabled() {
+		go handleUserInput(conn)
+	}
+	
 	go handleServerResponses(conn)
 	go startPingLoop(conn)
 
@@ -75,7 +103,7 @@ func connectToServer(config *ClientConfig) error {
 func handleUserInput(conn *net.UDPConn) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("> ")
+		print("> ")
 		inputRaw, err := reader.ReadString('\n')
 		if err != nil {
 			continue
@@ -84,25 +112,42 @@ func handleUserInput(conn *net.UDPConn) {
 
 		if strings.HasPrefix(strings.ToLower(input), "/join ") {
 			channel := strings.TrimSpace(input[6:])
-			change := map[string]string{
-				"type":    "change_channel",
-				"channel": channel,
-			}
-			data, _ := json.Marshal(change)
-			conn.Write(data)
-			fmt.Println("Requested channel switch to:", channel)
+			changeChannel(channel)
 		} else {
-			fmt.Println("Unknown command.")
+			println("Unknown command.")
 		}
 	}
 }
 
+// Called from TUI and console input
+func changeChannel(channel string) {
+	if serverConn == nil {
+		LogError("Not connected to server")
+		return
+	}
+
+	change := map[string]string{
+		"type":    "change_channel",
+		"channel": channel,
+	}
+	data, _ := json.Marshal(change)
+	serverConn.Write(data)
+	
+	LogInfo("Requested channel switch to: %s", channel)
+}
+
 func handleServerResponses(conn *net.UDPConn) {
 	buffer := make([]byte, 4096)
+	var networkFrameCount int
+	
 	for {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			fmt.Println("Disconnected:", err)
+			LogError("Disconnected: %v", err)
+			if !isTUIDisabled() {
+				ConsoleTUISetConnected(false, "", "", "")
+				ConsoleTUIAddMessage("Disconnected from server")
+			}
 			return
 		}
 
@@ -111,54 +156,79 @@ func handleServerResponses(conn *net.UDPConn) {
 		if err := json.Unmarshal(buffer[:n], &msg); err == nil {
 			switch msg["type"] {
 			case "channel_changed":
-				fmt.Println("Server: You are now in channel", msg["channel"])
+				channelName := msg["channel"].(string)
+				currentChannel = channelName
+				
+				if !isTUIDisabled() {
+					ConsoleTUISetChannel(channelName)
+				}
+				LogInfo("You are now in channel: %s", channelName)
+				
 			case "error":
-				fmt.Println("Server error:", msg["message"])
+				errorMsg := msg["message"].(string)
+				if !isTUIDisabled() {
+					ConsoleTUIAddMessage(fmt.Sprintf("Server error: %s", errorMsg))
+				}
+				LogError("Server error: %s", errorMsg)
+				
 			case "pong":
 				// silently accepted
 			default:
-				fmt.Println("Server:", msg)
+				LogDebug("Server message: %v", msg)
 			}
 			continue
 		}
 
 		// Not JSON, try raw audio
 		if n < 4 {
-			fmt.Println("[NET] Dropped malformed packet (too small)")
+			LogNet("Dropped malformed packet (too small)")
 			continue
 		}
 
 		// Validate audio packet prefix
 		prefix := binary.LittleEndian.Uint16(buffer[0:2])
 		if prefix != 0x5541 { // 'AU' 
-			fmt.Printf("[NET] Dropped packet with invalid prefix: 0x%04X\n", prefix)
+			LogNet("Dropped packet with invalid prefix: 0x%04X", prefix)
 			continue
 		}
-
-		fmt.Printf("[NET] Audio packet received: %d bytes\n", n)
 
 		sampleCount := (n - 2) / 2 // skip 2 byte prefix, 2 bytes per sample
 		samples := make([]int16, sampleCount)
 		err = binary.Read(bytes.NewReader(buffer[2:n]), binary.LittleEndian, &samples)
 		if err != nil {
-			fmt.Println("[NET] Failed to decode audio:", err)
+			LogNet("Failed to decode audio: %v", err)
 			continue
 		}
 
 		if len(samples) != framesPerBuffer {
-			fmt.Printf("[NET] Dropped frame with wrong length: got %d, expected %d\n", len(samples), framesPerBuffer)
+			LogNet("Dropped frame with wrong length: got %d, expected %d", len(samples), framesPerBuffer)
 			continue
 		}
 
-		// Calculate max amplitude for debugging
+		// Update Console TUI with received audio
+		if !isTUIDisabled() {
+			ConsoleTUIIncrementRX()
+			maxAmp := maxAmplitude(samples)
+			if maxAmp > 50 {
+				ConsoleTUISetAudioLevel(int(float64(maxAmp) / 32767.0 * 100))
+			}
+		}
+
+		// Calculate max amplitude - only log every 50 frames (once per second)
+		networkFrameCount++
 		maxAmp := maxAmplitude(samples)
-		fmt.Printf("[NET] Decoded %d samples, max amplitude: %d\n", len(samples), maxAmp)
+		if maxAmp > 50 && networkFrameCount%50 == 0 {
+			LogNet("Receiving audio (amplitude: %d)", maxAmp)
+		}
 
 		select {
 		case incomingAudio <- samples:
-			fmt.Printf("[NET] Queued %d samples to playback buffer\n", len(samples))
+			// Successfully queued
 		default:
-			fmt.Println("[NET] Playback buffer full, dropping packet")
+			LogNet("Playback buffer full, dropping packet")
+			if !isTUIDisabled() {
+				ConsoleTUIAddMessage("Audio buffer overflow")
+			}
 		}
 	}
 }

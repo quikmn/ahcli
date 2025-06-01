@@ -18,15 +18,25 @@ if (Test-Path "$root\go.mod") {
     $null = $sb.AppendLine((Get-Content "$root\go.mod" -Raw))
 }
 
-# .go files
+# go.sum
+if (Test-Path "$root\go.sum") {
+    $null = $sb.AppendLine("`n--- go.sum ---")
+    $null = $sb.AppendLine((Get-Content "$root\go.sum" -Raw))
+}
+
+# .go, .html, .css files
 $components = @("client", "server", "common")
 foreach ($comp in $components) {
     $path = Join-Path $root $comp
     if (Test-Path $path) {
         $null = $sb.AppendLine("`n=== $comp/ Source Files ===")
-        Get-ChildItem "$path\*.go" | ForEach-Object {
-            $null = $sb.AppendLine("`n--- $($_.FullName) ---")
-            $null = $sb.AppendLine((Get-Content $_.FullName -Raw))
+
+        $patterns = "*.go", "*.html", "*.css"
+        foreach ($pattern in $patterns) {
+            Get-ChildItem "$path\$pattern" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                $null = $sb.AppendLine("`n--- $($_.FullName) ---")
+                $null = $sb.AppendLine((Get-Content $_.FullName -Raw))
+            }
         }
     }
 }

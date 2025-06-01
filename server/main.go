@@ -6,8 +6,6 @@ import (
 	"os"
 )
 
-var serverConfig *ServerConfig
-
 type Channel struct {
 	Name        string `json:"name"`
 	AllowSpeak  bool   `json:"allow_speak"`
@@ -23,6 +21,8 @@ type ServerConfig struct {
 	Channels   []Channel `json:"channels"`
 }
 
+var serverConfig *ServerConfig
+
 func loadServerConfig(path string) (*ServerConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -36,24 +36,27 @@ func loadServerConfig(path string) (*ServerConfig, error) {
 }
 
 func main() {
+	// Initialize logging first (parses --debug flag)
+	InitLogger()
+	defer CloseLogger()
+
 	config, err := loadServerConfig("config.json")
 	if err != nil {
 		fmt.Println("Error loading config:", err)
+		LogError("Error loading config: %v", err)
 		return
 	}
 
-	serverConfig = config // <- This is the fix
+	serverConfig = config
 
-	fmt.Println("Server config loaded:")
-	fmt.Printf("Server Name: %s\n", config.ServerName)
-	fmt.Printf("Port: %d\n", config.ListenPort)
-	fmt.Printf("MOTD: %s\n", config.MOTD)
-	fmt.Println("Channels:")
+	LogInfo("Server config loaded successfully")
+	LogDebug("Server Name: %s", config.ServerName)
+	LogDebug("Port: %d", config.ListenPort)
+	LogDebug("MOTD: %s", config.MOTD)
 	for _, ch := range config.Channels {
-		fmt.Printf(" - %s (speak: %t, listen: %t)\n", ch.Name, ch.AllowSpeak, ch.AllowListen)
+		LogDebug("Channel: %s (speak: %t, listen: %t)", ch.Name, ch.AllowSpeak, ch.AllowListen)
 	}
 
-	// This line is crucial!
+	LogInfo("Starting UDP server on port %d", config.ListenPort)
 	startUDPServer(config)
 }
-

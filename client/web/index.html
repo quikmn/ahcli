@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AHCLI Voice Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            overflow: hidden;
+        }
+
+        .app {
+            display: grid;
+            grid-template-rows: 60px 1fr 50px;
+            height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-bottom: 2px solid #3498db;
+        }
+
+        .header h1 {
+            color: #ecf0f1;
+            font-size: 18px;
+            font-weight: 300;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e74c3c;
+            transition: background 0.3s;
+        }
+
+        .status-dot.connected {
+            background: #27ae60;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 200px 1fr 250px;
+            height: 100%;
+            gap: 1px;
+            background: #2c3e50;
+        }
+
+        .sidebar {
+            background: #2c3e50;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .messages {
+            background: #34495e;
+            padding: 10px;
+            overflow-y: auto;
+            border-left: 1px solid #3498db;
+            border-right: 1px solid #3498db;
+        }
+
+        .channels {
+            background: #2c3e50;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            color: #3498db;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-item {
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .stat-label {
+            color: #95a5a6;
+        }
+
+        .stat-value {
+            color: #ecf0f1;
+            font-weight: bold;
+        }
+
+        .channel-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            margin: 2px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .channel-item:hover {
+            background: rgba(52, 152, 219, 0.1);
+        }
+
+        .channel-item.active {
+            background: rgba(52, 152, 219, 0.2);
+            border-left: 3px solid #3498db;
+        }
+
+        .channel-icon {
+            margin-right: 8px;
+            color: #95a5a6;
+        }
+
+        .user-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 20px;
+            margin: 1px 0;
+            font-size: 12px;
+            color: #bdc3c7;
+        }
+
+        .user-item.self {
+            color: #f39c12;
+            font-weight: bold;
+        }
+
+        .message-item {
+            margin-bottom: 8px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .message-item.info {
+            background: rgba(52, 152, 219, 0.1);
+            border-left: 3px solid #3498db;
+        }
+
+        .message-item.success {
+            background: rgba(39, 174, 96, 0.1);
+            border-left: 3px solid #27ae60;
+        }
+
+        .message-item.error {
+            background: rgba(231, 76, 60, 0.1);
+            border-left: 3px solid #e74c3c;
+        }
+
+        .message-time {
+            color: #95a5a6;
+            font-size: 11px;
+        }
+
+        .footer {
+            background: #2c3e50;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-top: 1px solid #3498db;
+        }
+
+        .ptt-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ptt-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #95a5a6;
+            transition: all 0.3s;
+        }
+
+        .ptt-indicator.active {
+            background: #e74c3c;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+        }
+
+        .audio-bar {
+            display: flex;
+            gap: 2px;
+            align-items: end;
+        }
+
+        .audio-bar-segment {
+            width: 3px;
+            height: 4px;
+            background: #34495e;
+            transition: background 0.1s;
+        }
+
+        .audio-bar-segment.active {
+            background: #27ae60;
+        }
+
+        .audio-bar-segment.high {
+            background: #f39c12;
+        }
+
+        .audio-bar-segment.peak {
+            background: #e74c3c;
+        }
+
+        .command-input {
+            background: #34495e;
+            border: 1px solid #3498db;
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: #ecf0f1;
+            font-size: 12px;
+            min-width: 200px;
+        }
+
+        .command-input:focus {
+            outline: none;
+            border-color: #2980b9;
+            box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+        }
+
+        .network-stats {
+            font-size: 11px;
+            color: #95a5a6;
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2c3e50;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #34495e;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="header">
+            <h1>AHCLI Voice Chat</h1>
+            <div class="status">
+                <div class="status-dot" id="connectionStatus"></div>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="section-title">Connection</div>
+                <div class="stat-item">
+                    <span class="stat-label">User:</span>
+                    <span class="stat-value" id="nickname">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Uptime:</span>
+                    <span class="stat-value" id="uptime">-</span>
+                </div>
+                
+                <div class="section-title" style="margin-top: 20px;">Network</div>
+                <div class="stat-item">
+                    <span class="stat-label">RX:</span>
+                    <span class="stat-value" id="packetsRx">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">TX:</span>
+                    <span class="stat-value" id="packetsTx">0</span>
+                </div>
+
+                <div class="section-title" style="margin-top: 20px;">Channel</div>
+                <div class="stat-item">
+                    <span class="stat-value" id="currentChannel">None</span>
+                </div>
+            </div>
+
+            <div class="messages" id="messagesContainer">
+                <!-- Messages will be populated here -->
+            </div>
+
+            <div class="channels">
+                <div class="section-title">Channels & Users</div>
+                <div id="channelsContainer">
+                    <!-- Channels and users will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="ptt-status">
+                <div class="ptt-indicator" id="pttIndicator"></div>
+                <span id="pttText">Ready</span>
+                <div class="audio-bar" id="audioBar">
+                    <!-- Audio level bars -->
+                </div>
+            </div>
+            
+            <input type="text" class="command-input" id="commandInput" placeholder="Type /join channel, /quit, /help..." />
+            
+            <div class="network-stats">
+                <span id="pttKeyText">Hold LSHIFT to transmit</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let state = {};
+
+        // Initialize WebSocket connection
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                state = JSON.parse(event.data);
+                updateUI();
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 1000);
+            };
+        }
+
+        // Update UI based on state
+        function updateUI() {
+            // Connection status
+            const statusDot = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('statusText');
+            
+            if (state.connected) {
+                statusDot.classList.add('connected');
+                statusText.textContent = `Connected to ${state.serverName}`;
+            } else {
+                statusDot.classList.remove('connected');
+                statusText.textContent = 'Disconnected';
+            }
+
+            // User info
+            document.getElementById('nickname').textContent = state.nickname || '-';
+            document.getElementById('currentChannel').textContent = state.currentChannel || 'None';
+
+            // Network stats
+            document.getElementById('packetsRx').textContent = state.packetsRx || 0;
+            document.getElementById('packetsTx').textContent = state.packetsTx || 0;
+
+            // PTT status
+            const pttIndicator = document.getElementById('pttIndicator');
+            const pttText = document.getElementById('pttText');
+            
+            if (state.pttActive) {
+                pttIndicator.classList.add('active');
+                pttText.textContent = 'Transmitting';
+            } else {
+                pttIndicator.classList.remove('active');
+                pttText.textContent = 'Ready';
+            }
+
+            // PTT key text
+            document.getElementById('pttKeyText').textContent = `Hold ${state.pttKey} to transmit`;
+
+            // Audio level
+            updateAudioBar(state.audioLevel || 0);
+
+            // Uptime
+            if (state.connectionTime) {
+                const uptimeSeconds = Math.floor((Date.now() - new Date(state.connectionTime).getTime()) / 1000);
+                document.getElementById('uptime').textContent = formatUptime(uptimeSeconds);
+            }
+
+            // Messages
+            updateMessages();
+
+            // Channels
+            updateChannels();
+        }
+
+        function updateAudioBar(level) {
+            const audioBar = document.getElementById('audioBar');
+            if (audioBar.children.length === 0) {
+                // Create 20 segments
+                for (let i = 0; i < 20; i++) {
+                    const segment = document.createElement('div');
+                    segment.className = 'audio-bar-segment';
+                    segment.style.height = `${4 + i}px`;
+                    audioBar.appendChild(segment);
+                }
+            }
+
+            const segments = audioBar.children;
+            const activeSegments = Math.floor((level / 100) * segments.length);
+
+            for (let i = 0; i < segments.length; i++) {
+                segments[i].classList.remove('active', 'high', 'peak');
+                
+                if (i < activeSegments) {
+                    if (i < segments.length * 0.6) {
+                        segments[i].classList.add('active');
+                    } else if (i < segments.length * 0.8) {
+                        segments[i].classList.add('high');
+                    } else {
+                        segments[i].classList.add('peak');
+                    }
+                }
+            }
+        }
+
+        function updateMessages() {
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+
+            if (state.messages) {
+                // Show latest messages first
+                const recentMessages = state.messages.slice(-50).reverse();
+                
+                recentMessages.forEach(msg => {
+                    const div = document.createElement('div');
+                    div.className = `message-item ${msg.type}`;
+                    div.innerHTML = `
+                        <div class="message-time">[${msg.timestamp}]</div>
+                        <div>${msg.message}</div>
+                    `;
+                    container.appendChild(div);
+                });
+            }
+        }
+
+        function updateChannels() {
+            const container = document.getElementById('channelsContainer');
+            container.innerHTML = '';
+
+            if (state.channels) {
+                state.channels.forEach(channel => {
+                    const channelDiv = document.createElement('div');
+                    channelDiv.className = `channel-item ${channel === state.currentChannel ? 'active' : ''}`;
+                    channelDiv.innerHTML = `
+                        <span class="channel-icon">${channel === state.currentChannel ? '▶' : '▷'}</span>
+                        ${channel}
+                    `;
+                    channelDiv.onclick = () => joinChannel(channel);
+                    container.appendChild(channelDiv);
+
+                    // Add users in this channel
+                    if (state.channelUsers && state.channelUsers[channel]) {
+                        state.channelUsers[channel].forEach(user => {
+                            const userDiv = document.createElement('div');
+                            userDiv.className = `user-item ${user === state.nickname ? 'self' : ''}`;
+                            userDiv.innerHTML = `├─ ${user}${user === state.nickname ? ' (you)' : ''}`;
+                            container.appendChild(userDiv);
+                        });
+                    }
+                });
+            }
+        }
+
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes}m ${secs}s`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+
+        function joinChannel(channel) {
+            if (channel !== state.currentChannel) {
+                sendCommand('join', channel);
+            }
+        }
+
+        function sendCommand(command, args = '') {
+            fetch('/api/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: command,
+                    args: args
+                })
+            });
+        }
+
+        // Command input handling
+        document.getElementById('commandInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const input = e.target.value.trim();
+                if (input.startsWith('/')) {
+                    const parts = input.slice(1).split(' ');
+                    const command = parts[0];
+                    const args = parts.slice(1).join(' ');
+                    sendCommand(command, args);
+                }
+                e.target.value = '';
+            }
+        });
+
+        // Initialize
+        connectWebSocket();
+        
+        // Update uptime every second
+        setInterval(() => {
+            if (state.connected && state.connectionTime) {
+                const uptimeSeconds = Math.floor((Date.now() - new Date(state.connectionTime).getTime()) / 1000);
+                document.getElementById('uptime').textContent = formatUptime(uptimeSeconds);
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

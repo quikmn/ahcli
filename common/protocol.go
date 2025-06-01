@@ -6,11 +6,12 @@ type ConnectRequest struct {
 }
 
 type ConnectAccepted struct {
-	Type     string   `json:"type"` // should be "accept"
-	Nickname string   `json:"nickname"`
-	MOTD     string   `json:"motd"`
-	Channels []string `json:"channels"`
-	Users    []string `json:"users"`
+	Type       string   `json:"type"` // should be "accept"
+	Nickname   string   `json:"nickname"`
+	ServerName string   `json:"server_name"`
+	MOTD       string   `json:"motd"`
+	Channels   []string `json:"channels"`
+	Users      []string `json:"users"`
 }
 
 type Reject struct {
