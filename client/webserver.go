@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/gorilla/websocket"
 )
@@ -33,6 +34,11 @@ type WebTUIState struct {
 	ConnectionTime time.Time         `json:"connectionTime"`
 	Messages       []WebMessage      `json:"messages"`
 	PTTKey         string            `json:"pttKey"`
+	
+	// NEW: Audio processing state
+	AudioPreset    string            `json:"audioPreset"`
+	InputLevel     float32           `json:"inputLevel"`
+	OutputLevel    float32           `json:"outputLevel"`
 }
 
 type WebMessage struct {
@@ -53,6 +59,9 @@ var (
 	wsClients = make(map[*websocket.Conn]bool)
 	wsMutex   sync.Mutex
 	observersSetup = false
+	
+	// Global config reference for audio controls
+	currentConfig *ClientConfig
 )
 
 func StartWebServer() (int, error) {
@@ -254,11 +263,25 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 		// DUAL-WRITE: Update both systems with join message
 		appState.AddMessage(fmt.Sprintf("Joining channel: %s", cmd.Args), "info")
 		WebTUIAddMessage(fmt.Sprintf("Joining channel: %s", cmd.Args), "info")
+		
 	case "quit":
 		// DUAL-WRITE: Update both systems with quit message
 		appState.AddMessage("Disconnecting...", "info")
 		WebTUIAddMessage("Disconnecting...", "info")
 		// Could trigger graceful shutdown here
+		
+	case "audio_preset":
+		handleAudioPreset(cmd.Args)
+		
+	case "audio_setting":
+		handleAudioSetting(cmd.Args)
+		
+	case "test_microphone":
+		handleTestMicrophone()
+		
+	case "save_custom_preset":
+		handleSaveCustomPreset()
+		
 	default:
 		// DUAL-WRITE: Update both systems with unknown command message
 		appState.AddMessage(fmt.Sprintf("Unknown command: %s", cmd.Command), "error")
@@ -266,6 +289,164 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	w.WriteHeader(200)
+}
+
+// Audio preset handler
+func handleAudioPreset(preset string) {
+	LogInfo("Changing audio preset to: %s", preset)
+	
+	if currentConfig == nil {
+		LogError("No config loaded for audio preset change")
+		appState.AddMessage("Error: Configuration not loaded", "error")
+		return
+	}
+	
+	// Apply preset to config
+	applyAudioPreset(currentConfig, preset)
+	
+	// Apply to processor immediately
+	applyAudioConfigToProcessor(currentConfig)
+	
+	// Update UI state
+	webTUI.Lock()
+	webTUI.AudioPreset = preset
+	webTUI.Unlock()
+	
+	// Save config to file
+	if err := saveClientConfig("settings.config", currentConfig); err != nil {
+		LogError("Failed to save audio preset: %v", err)
+		appState.AddMessage("Failed to save audio settings", "error")
+	} else {
+		LogInfo("Audio preset '%s' applied and saved", preset)
+		appState.AddMessage(fmt.Sprintf("Audio preset changed to: %s", preset), "success")
+	}
+	
+	broadcastUpdate()
+}
+
+// Individual audio setting handler
+func handleAudioSetting(argsJSON string) {
+	var setting struct {
+		Section string      `json:"section"`
+		Param   string      `json:"param"`
+		Value   interface{} `json:"value"`
+	}
+	
+	if err := json.Unmarshal([]byte(argsJSON), &setting); err != nil {
+		LogError("Invalid audio setting JSON: %v", err)
+		return
+	}
+	
+	LogInfo("Updating audio setting: %s.%s = %v", setting.Section, setting.Param, setting.Value)
+	
+	if currentConfig == nil {
+		LogError("No config loaded for audio setting change")
+		return
+	}
+	
+	// Update config based on section and parameter
+	switch setting.Section {
+	case "noiseGate":
+		switch setting.Param {
+		case "enabled":
+			if enabled, ok := setting.Value.(bool); ok {
+				currentConfig.AudioProcessing.NoiseGate.Enabled = enabled
+			}
+		case "threshold":
+			if threshold, ok := setting.Value.(string); ok {
+				if val, err := strconv.ParseFloat(threshold, 32); err == nil {
+					currentConfig.AudioProcessing.NoiseGate.ThresholdDB = float32(val)
+				}
+			}
+		}
+		
+	case "compressor":
+		switch setting.Param {
+		case "enabled":
+			if enabled, ok := setting.Value.(bool); ok {
+				currentConfig.AudioProcessing.Compressor.Enabled = enabled
+			}
+		case "threshold":
+			if threshold, ok := setting.Value.(string); ok {
+				if val, err := strconv.ParseFloat(threshold, 32); err == nil {
+					currentConfig.AudioProcessing.Compressor.ThresholdDB = float32(val)
+				}
+			}
+		case "ratio":
+			if ratio, ok := setting.Value.(string); ok {
+				if val, err := strconv.ParseFloat(ratio, 32); err == nil {
+					currentConfig.AudioProcessing.Compressor.Ratio = float32(val)
+				}
+			}
+		}
+		
+	case "makeupGain":
+		switch setting.Param {
+		case "enabled":
+			if enabled, ok := setting.Value.(bool); ok {
+				currentConfig.AudioProcessing.MakeupGain.Enabled = enabled
+			}
+		case "gain":
+			if gain, ok := setting.Value.(string); ok {
+				if val, err := strconv.ParseFloat(gain, 32); err == nil {
+					currentConfig.AudioProcessing.MakeupGain.GainDB = float32(val)
+				}
+			}
+		}
+	}
+	
+	// Set preset to custom when individual settings change
+	currentConfig.AudioProcessing.Preset = "custom"
+	
+	// Update UI state
+	webTUI.Lock()
+	webTUI.AudioPreset = "custom"
+	webTUI.Unlock()
+	
+	// Apply to processor immediately
+	applyAudioConfigToProcessor(currentConfig)
+	
+	// Save config to file
+	if err := saveClientConfig("settings.config", currentConfig); err != nil {
+		LogError("Failed to save audio setting: %v", err)
+	} else {
+		LogDebug("Audio setting saved: %s.%s = %v", setting.Section, setting.Param, setting.Value)
+	}
+	
+	broadcastUpdate()
+}
+
+// Test microphone handler
+func handleTestMicrophone() {
+	LogInfo("Testing microphone audio levels")
+	appState.AddMessage("🎤 Testing microphone - speak now!", "info")
+	
+	// Trigger audio pipeline test
+	go func() {
+		TestAudioPipeline()
+		time.Sleep(2 * time.Second)
+		appState.AddMessage("Microphone test completed", "success")
+	}()
+}
+
+// Save custom preset handler  
+func handleSaveCustomPreset() {
+	if currentConfig == nil {
+		LogError("No config to save custom preset")
+		appState.AddMessage("Error: No configuration loaded", "error")
+		return
+	}
+	
+	LogInfo("Saving custom audio preset")
+	
+	// Save current settings as custom preset
+	if err := saveClientConfig("settings.config", currentConfig); err != nil {
+		LogError("Failed to save custom preset: %v", err)
+		appState.AddMessage("Failed to save custom preset", "error")
+	} else {
+		LogInfo("Custom audio preset saved successfully")
+		appState.AddMessage("💾 Custom preset saved!", "success")
+	}
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {

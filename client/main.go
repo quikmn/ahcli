@@ -47,7 +47,23 @@ func main() {
 		return
 	}
 
+	// Store config reference for audio controls
+	currentConfig = config
+
 	LogInfo("Client config loaded successfully")
+	
+	// Apply audio processing settings from config
+	LogInfo("Audio preset: %s", config.AudioProcessing.Preset)
+	LogInfo("Noise gate: enabled=%t, threshold=%.1fdB", 
+		config.AudioProcessing.NoiseGate.Enabled, 
+		config.AudioProcessing.NoiseGate.ThresholdDB)
+	LogInfo("Compressor: enabled=%t, threshold=%.1fdB, ratio=%.1f", 
+		config.AudioProcessing.Compressor.Enabled,
+		config.AudioProcessing.Compressor.ThresholdDB,
+		config.AudioProcessing.Compressor.Ratio)
+	LogInfo("Makeup gain: enabled=%t, gain=%.1fdB", 
+		config.AudioProcessing.MakeupGain.Enabled,
+		config.AudioProcessing.MakeupGain.GainDB)
 
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
@@ -66,6 +82,10 @@ func main() {
 		return
 	}
 	LogInfo("Audio initialized successfully")
+	
+	// Apply audio config to processor AFTER audio init
+	applyAudioConfigToProcessor(config)
+	LogInfo("Audio processing settings applied from config")
 
 	// Initialize Web UI server
 	port, err := StartWebServer()

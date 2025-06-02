@@ -44,6 +44,12 @@ type DynamicCompressor struct {
 	gainReduction float32
 }
 
+// MakeupGain adds gain to compensate for compression
+type MakeupGain struct {
+	gainDB       float32  // Gain in decibels
+	gainLinear   float32  // Calculated linear gain
+}
+
 // JitterBuffer handles packet reordering and timing
 type JitterBuffer struct {
 	sync.RWMutex
@@ -74,6 +80,7 @@ type AudioProcessor struct {
 	// Input processing
 	noiseGate   *NoiseGate
 	compressor  *DynamicCompressor
+	makeupGain  *MakeupGain
 	
 	// Network buffering
 	jitterBuffer *JitterBuffer
@@ -81,6 +88,7 @@ type AudioProcessor struct {
 	// Settings
 	enableNoiseGate bool
 	enableCompressor bool
+	enableMakeupGain bool
 	enableJitterBuffer bool
 	
 	// Statistics
@@ -124,6 +132,10 @@ func NewAudioProcessor() *AudioProcessor {
 			makeupGain:  1.2,   // Compensate for compression
 			envelope:    0.0,
 		},
+		makeupGain: &MakeupGain{
+			gainDB:     6.0,    // +6dB default
+			gainLinear: 2.0,    // Calculated from gainDB
+		},
 		jitterBuffer: &JitterBuffer{
 			buffer:        list.New(),
 			bufferTime:    60 * time.Millisecond,
@@ -132,8 +144,9 @@ func NewAudioProcessor() *AudioProcessor {
 			targetLatency: 80 * time.Millisecond,
 			playInterval:  20 * time.Millisecond, // 960 samples @ 48kHz
 		},
-		enableNoiseGate:    true,
-		enableCompressor:   true,
+		enableNoiseGate:    false,  // OFF by default
+		enableCompressor:   false,  // OFF by default
+		enableMakeupGain:   false,  // OFF by default
 		enableJitterBuffer: false,  // TEMPORARILY DISABLED FOR DEBUGGING
 	}
 }
@@ -157,8 +170,40 @@ func (ap *AudioProcessor) ProcessInputAudio(samples []int16) []int16 {
 		processed = ap.applyCompressor(processed)
 	}
 	
+	// Stage 3: Makeup Gain
+	if ap.enableMakeupGain {
+		processed = ap.applyMakeupGain(processed)
+	}
+	
 	// Update input statistics
 	ap.updateInputStats(samples, processed)
+	
+	return processed
+}
+
+// applyMakeupGain applies makeup gain to compensate for compression
+func (ap *AudioProcessor) applyMakeupGain(samples []int16) []int16 {
+	mg := ap.makeupGain
+	processed := make([]int16, len(samples))
+	
+	// Convert dB to linear gain if needed
+	if mg.gainLinear == 0 {
+		mg.gainLinear = powf(10.0, mg.gainDB/20.0)
+	}
+	
+	for i, sample := range samples {
+		// Apply linear gain
+		gained := float32(sample) * mg.gainLinear
+		
+		// Soft clipping to prevent harsh distortion
+		if gained > 32767 {
+			gained = 32767
+		} else if gained < -32767 {
+			gained = -32767
+		}
+		
+		processed[i] = int16(gained)
+	}
 	
 	return processed
 }

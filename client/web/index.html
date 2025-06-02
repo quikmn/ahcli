@@ -109,6 +109,224 @@
             font-weight: bold;
         }
 
+        /* Audio Controls Styling */
+        .audio-controls {
+            margin-top: 15px;
+            padding: 10px;
+            background: #34495e;
+            border-radius: 4px;
+            border-left: 3px solid #3498db;
+        }
+
+        .preset-selector {
+            margin-bottom: 12px;
+        }
+
+        .preset-selector label {
+            display: block;
+            color: #95a5a6;
+            font-size: 11px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .preset-selector select {
+            width: 100%;
+            background: #2c3e50;
+            border: 1px solid #3498db;
+            border-radius: 3px;
+            color: #ecf0f1;
+            padding: 4px 6px;
+            font-size: 12px;
+        }
+
+        .preset-selector select:focus {
+            outline: none;
+            border-color: #2980b9;
+            box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+        }
+
+        .audio-meters {
+            margin-top: 10px;
+        }
+
+        .meter-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 11px;
+        }
+
+        .meter-row span {
+            width: 50px;
+            color: #95a5a6;
+            flex-shrink: 0;
+        }
+
+        .audio-meter {
+            flex: 1;
+            height: 8px;
+            background: #2c3e50;
+            border-radius: 4px;
+            margin-left: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .audio-meter-fill {
+            height: 100%;
+            background: linear-gradient(to right, #27ae60 0%, #f39c12 70%, #e74c3c 90%);
+            width: 0%;
+            transition: width 0.1s ease;
+            border-radius: 4px;
+        }
+
+        .preset-status {
+            margin-top: 8px;
+            padding: 4px 6px;
+            background: #2c3e50;
+            border-radius: 3px;
+            font-size: 10px;
+            text-align: center;
+        }
+
+        .preset-status.off { color: #95a5a6; }
+        .preset-status.light { color: #f39c12; }
+        .preset-status.balanced { color: #27ae60; }
+        .preset-status.aggressive { color: #e74c3c; }
+        .preset-status.custom { color: #9b59b6; }
+
+        /* Advanced Controls Styling */
+        .advanced-controls {
+            margin-top: 10px;
+            border-top: 1px solid #3498db;
+            padding-top: 8px;
+        }
+
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            cursor: pointer;
+            font-size: 11px;
+            color: #3498db;
+            user-select: none;
+        }
+
+        .control-header:hover {
+            color: #2980b9;
+        }
+
+        .toggle-arrow {
+            transition: transform 0.2s;
+        }
+
+        .toggle-arrow.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .control-panels {
+            max-height: 300px;
+            overflow-y: auto;
+            transition: max-height 0.3s ease;
+        }
+
+        .control-panels.collapsed {
+            max-height: 0;
+            overflow: hidden;
+        }
+
+        .control-panel {
+            margin: 8px 0;
+            padding: 6px;
+            background: #2c3e50;
+            border-radius: 3px;
+            border-left: 2px solid #3498db;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .panel-header input[type="checkbox"] {
+            margin-right: 6px;
+            accent-color: #3498db;
+        }
+
+        .panel-header label {
+            font-size: 11px;
+            color: #ecf0f1;
+            font-weight: bold;
+        }
+
+        .slider-control {
+            margin: 4px 0;
+        }
+
+        .slider-control label {
+            display: block;
+            font-size: 10px;
+            color: #95a5a6;
+            margin-bottom: 2px;
+        }
+
+        .slider-control input[type="range"] {
+            width: 100%;
+            height: 4px;
+            background: #34495e;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #3498db;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slider-control input[type="range"]::-webkit-slider-thumb:hover {
+            background: #2980b9;
+        }
+
+        .control-actions {
+            display: flex;
+            gap: 4px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            flex: 1;
+            min-width: 45px;
+            padding: 3px 6px;
+            font-size: 9px;
+            background: #34495e;
+            border: 1px solid #3498db;
+            border-radius: 3px;
+            color: #ecf0f1;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #3498db;
+        }
+
+        .action-btn.save {
+            border-color: #27ae60;
+        }
+
+        .action-btn.save:hover {
+            background: #27ae60;
+        }
+
         .channel-item {
             display: flex;
             align-items: center;
@@ -304,6 +522,103 @@
                 <div class="stat-item">
                     <span class="stat-value" id="currentChannel">None</span>
                 </div>
+
+                <!-- Audio Processing Controls -->
+                <div class="section-title" style="margin-top: 20px;">Audio Processing</div>
+                <div class="audio-controls">
+                    <div class="preset-selector">
+                        <label>Preset:</label>
+                        <select id="audioPreset" onchange="changeAudioPreset()">
+                            <option value="off">Off</option>
+                            <option value="light">Light</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="aggressive">Aggressive</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    
+                    <div class="audio-meters">
+                        <div class="meter-row">
+                            <span>🎤 In:</span>
+                            <div class="audio-meter">
+                                <div class="audio-meter-fill" id="inputMeterFill"></div>
+                            </div>
+                        </div>
+                        <div class="meter-row">
+                            <span>🔊 Out:</span>
+                            <div class="audio-meter">
+                                <div class="audio-meter-fill" id="outputMeterFill"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Expandable Detailed Controls -->
+                    <div class="advanced-controls" id="advancedControls">
+                        <div class="control-header" onclick="toggleAdvanced()">
+                            <span>🔧 Advanced Controls</span>
+                            <span class="toggle-arrow" id="toggleArrow">▼</span>
+                        </div>
+                        
+                        <div class="control-panels" id="controlPanels">
+                            <!-- Noise Gate Controls -->
+                            <div class="control-panel">
+                                <div class="panel-header">
+                                    <input type="checkbox" id="noiseGateEnabled" onchange="updateAudioSetting('noiseGate', 'enabled', this.checked)">
+                                    <label for="noiseGateEnabled">🚪 Noise Gate</label>
+                                </div>
+                                <div class="slider-control">
+                                    <label>Threshold: <span id="noiseGateValue">-40dB</span></label>
+                                    <input type="range" id="noiseGateThreshold" min="-60" max="-10" value="-40" step="1" 
+                                           oninput="updateSliderValue('noiseGate', 'threshold', this.value)" 
+                                           onchange="updateAudioSetting('noiseGate', 'threshold', this.value)">
+                                </div>
+                            </div>
+
+                            <!-- Compressor Controls -->
+                            <div class="control-panel">
+                                <div class="panel-header">
+                                    <input type="checkbox" id="compressorEnabled" onchange="updateAudioSetting('compressor', 'enabled', this.checked)">
+                                    <label for="compressorEnabled">📈 Compressor</label>
+                                </div>
+                                <div class="slider-control">
+                                    <label>Threshold: <span id="compThresholdValue">-18dB</span></label>
+                                    <input type="range" id="compThreshold" min="-30" max="-6" value="-18" step="1" 
+                                           oninput="updateSliderValue('compressor', 'threshold', this.value)" 
+                                           onchange="updateAudioSetting('compressor', 'threshold', this.value)">
+                                </div>
+                                <div class="slider-control">
+                                    <label>Ratio: <span id="compRatioValue">3.0:1</span></label>
+                                    <input type="range" id="compRatio" min="1" max="10" value="3" step="0.1" 
+                                           oninput="updateSliderValue('compressor', 'ratio', this.value)" 
+                                           onchange="updateAudioSetting('compressor', 'ratio', this.value)">
+                                </div>
+                            </div>
+
+                            <!-- Makeup Gain Controls -->
+                            <div class="control-panel">
+                                <div class="panel-header">
+                                    <input type="checkbox" id="makeupGainEnabled" onchange="updateAudioSetting('makeupGain', 'enabled', this.checked)">
+                                    <label for="makeupGainEnabled">🔊 Makeup Gain</label>
+                                </div>
+                                <div class="slider-control">
+                                    <label>Gain: <span id="makeupGainValue">+6dB</span></label>
+                                    <input type="range" id="makeupGainLevel" min="0" max="15" value="6" step="0.5" 
+                                           oninput="updateSliderValue('makeupGain', 'gain', this.value)" 
+                                           onchange="updateAudioSetting('makeupGain', 'gain', this.value)">
+                                </div>
+                            </div>
+
+                            <!-- Test & Reset -->
+                            <div class="control-actions">
+                                <button class="action-btn" onclick="testMicrophone()">🎤 Test Mic</button>
+                                <button class="action-btn" onclick="resetToDefaults()">🔄 Reset</button>
+                                <button class="action-btn save" onclick="saveCustomPreset()">💾 Save Custom</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="preset-status" id="presetStatus">Processing: Off</div>
+                </div>
             </div>
 
             <div class="messages" id="messagesContainer">
@@ -338,6 +653,7 @@
     <script>
         let ws;
         let state = {};
+        let advancedExpanded = false;
 
         // Initialize WebSocket connection
         function connectWebSocket() {
@@ -357,6 +673,215 @@
                 console.log('WebSocket disconnected, reconnecting...');
                 setTimeout(connectWebSocket, 1000);
             };
+        }
+
+        // Toggle advanced controls
+        function toggleAdvanced() {
+            advancedExpanded = !advancedExpanded;
+            const panels = document.getElementById('controlPanels');
+            const arrow = document.getElementById('toggleArrow');
+            
+            if (advancedExpanded) {
+                panels.classList.remove('collapsed');
+                arrow.classList.remove('collapsed');
+            } else {
+                panels.classList.add('collapsed');
+                arrow.classList.add('collapsed');
+            }
+        }
+
+        // Update slider display values
+        function updateSliderValue(section, param, value) {
+            switch(section) {
+                case 'noiseGate':
+                    if (param === 'threshold') {
+                        document.getElementById('noiseGateValue').textContent = `${value}dB`;
+                    }
+                    break;
+                case 'compressor':
+                    if (param === 'threshold') {
+                        document.getElementById('compThresholdValue').textContent = `${value}dB`;
+                    } else if (param === 'ratio') {
+                        document.getElementById('compRatioValue').textContent = `${value}:1`;
+                    }
+                    break;
+                case 'makeupGain':
+                    if (param === 'gain') {
+                        document.getElementById('makeupGainValue').textContent = `+${value}dB`;
+                    }
+                    break;
+            }
+        }
+
+        // Send individual audio setting updates
+        function updateAudioSetting(section, param, value) {
+            console.log(`Updating ${section}.${param} = ${value}`);
+            
+            // Set preset to custom when manual changes are made
+            document.getElementById('audioPreset').value = 'custom';
+            updatePresetStatus('custom');
+            
+            // Send setting to server
+            fetch('/api/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: 'audio_setting',
+                    args: JSON.stringify({
+                        section: section,
+                        param: param,
+                        value: value
+                    })
+                })
+            });
+        }
+
+        // Audio preset change handler
+        function changeAudioPreset() {
+            const preset = document.getElementById('audioPreset').value;
+            console.log('Changing audio preset to:', preset);
+            
+            // Send preset change to server
+            fetch('/api/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: 'audio_preset',
+                    args: preset
+                })
+            });
+            
+            // Update status immediately for responsiveness
+            updatePresetStatus(preset);
+            
+            // Update UI controls based on preset
+            updateControlsFromPreset(preset);
+        }
+
+        // Update controls based on preset selection
+        function updateControlsFromPreset(preset) {
+            const presets = {
+                'off': {
+                    noiseGate: { enabled: false, threshold: -40 },
+                    compressor: { enabled: false, threshold: -18, ratio: 3.0 },
+                    makeupGain: { enabled: false, gain: 6 }
+                },
+                'light': {
+                    noiseGate: { enabled: true, threshold: -45 },
+                    compressor: { enabled: true, threshold: -18, ratio: 2.0 },
+                    makeupGain: { enabled: true, gain: 3 }
+                },
+                'balanced': {
+                    noiseGate: { enabled: true, threshold: -35 },
+                    compressor: { enabled: true, threshold: -18, ratio: 3.0 },
+                    makeupGain: { enabled: true, gain: 6 }
+                },
+                'aggressive': {
+                    noiseGate: { enabled: true, threshold: -25 },
+                    compressor: { enabled: true, threshold: -18, ratio: 4.0 },
+                    makeupGain: { enabled: true, gain: 9 }
+                }
+            };
+            
+            if (presets[preset]) {
+                const config = presets[preset];
+                
+                // Update checkboxes
+                document.getElementById('noiseGateEnabled').checked = config.noiseGate.enabled;
+                document.getElementById('compressorEnabled').checked = config.compressor.enabled;
+                document.getElementById('makeupGainEnabled').checked = config.makeupGain.enabled;
+                
+                // Update sliders
+                document.getElementById('noiseGateThreshold').value = config.noiseGate.threshold;
+                document.getElementById('compThreshold').value = config.compressor.threshold;
+                document.getElementById('compRatio').value = config.compressor.ratio;
+                document.getElementById('makeupGainLevel').value = config.makeupGain.gain;
+                
+                // Update display values
+                updateSliderValue('noiseGate', 'threshold', config.noiseGate.threshold);
+                updateSliderValue('compressor', 'threshold', config.compressor.threshold);
+                updateSliderValue('compressor', 'ratio', config.compressor.ratio);
+                updateSliderValue('makeupGain', 'gain', config.makeupGain.gain);
+            }
+        }
+
+        function updatePresetStatus(preset) {
+            const statusElement = document.getElementById('presetStatus');
+            statusElement.className = `preset-status ${preset}`;
+            
+            switch(preset) {
+                case 'off':
+                    statusElement.textContent = 'Processing: Off';
+                    break;
+                case 'light':
+                    statusElement.textContent = 'Processing: Light';
+                    break;
+                case 'balanced':
+                    statusElement.textContent = 'Processing: Balanced';
+                    break;
+                case 'aggressive':
+                    statusElement.textContent = 'Processing: Aggressive';
+                    break;
+                case 'custom':
+                    statusElement.textContent = 'Processing: Custom';
+                    break;
+            }
+        }
+
+        // Test microphone function
+        function testMicrophone() {
+            console.log('Testing microphone...');
+            fetch('/api/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: 'test_microphone',
+                    args: ''
+                })
+            });
+        }
+
+        // Reset to defaults
+        function resetToDefaults() {
+            if (confirm('Reset all audio settings to defaults?')) {
+                document.getElementById('audioPreset').value = 'balanced';
+                changeAudioPreset();
+            }
+        }
+
+        // Save custom preset
+        function saveCustomPreset() {
+            console.log('Saving custom preset...');
+            fetch('/api/command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: 'save_custom_preset',
+                    args: ''
+                })
+            });
+        }
+
+        // Update audio meters
+        function updateAudioMeters(inputLevel, outputLevel) {
+            const inputFill = document.getElementById('inputMeterFill');
+            const outputFill = document.getElementById('outputMeterFill');
+            
+            if (inputFill) {
+                inputFill.style.width = `${Math.min(inputLevel || 0, 100)}%`;
+            }
+            
+            if (outputFill) {
+                outputFill.style.width = `${Math.min(outputLevel || 0, 100)}%`;
+            }
         }
 
         // Update UI based on state
@@ -398,6 +923,16 @@
 
             // Audio level
             updateAudioBar(state.audioLevel || 0);
+
+            // Audio meters (new!)
+            updateAudioMeters(state.inputLevel, state.outputLevel);
+
+            // Audio preset (new!)
+            if (state.audioPreset) {
+                document.getElementById('audioPreset').value = state.audioPreset;
+                updatePresetStatus(state.audioPreset);
+                updateControlsFromPreset(state.audioPreset);
+            }
 
             // Uptime
             if (state.connectionTime) {
