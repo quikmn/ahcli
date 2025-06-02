@@ -54,13 +54,8 @@ func connectToServer(config *ClientConfig) error {
 		
 		currentChannel = "General" // Default channel
 		
-		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.SetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
-		
-		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.SetChannel(currentChannel)
-		
-		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.SetChannels(accepted.Channels)
 		
 		// Initialize channel users - put all users in the default channel for now
@@ -73,7 +68,6 @@ func connectToServer(config *ClientConfig) error {
 			channelUsers[currentChannel] = accepted.Users
 		}
 		
-		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.SetChannelUsers(channelUsers)
 		
 		LogInfo("Connected as: %s", accepted.Nickname)
@@ -118,19 +112,20 @@ func changeChannel(channel string) {
 func handleServerResponses(conn *net.UDPConn) {
 	buffer := make([]byte, 4096)
 	var networkFrameCount int
+	var lastSeqNum uint16 = 0
+	var packetsReceived int
+	var packetsLost int
 	
 	for {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			LogError("Disconnected: %v", err)
-			
-			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			appState.SetConnected(false, "", "", "")
 			appState.AddMessage("Disconnected from server", "error")
 			return
 		}
 
-		// Try to parse JSON first
+		// Try to parse JSON first (control messages)
 		var msg map[string]interface{}
 		if err := json.Unmarshal(buffer[:n], &msg); err == nil {
 			switch msg["type"] {
@@ -138,14 +133,11 @@ func handleServerResponses(conn *net.UDPConn) {
 				channelName := msg["channel"].(string)
 				currentChannel = channelName
 				
-				// PURE APPSTATE: Only update AppState - observer handles WebTUI
 				appState.SetChannel(channelName)
 				LogInfo("You are now in channel: %s", channelName)
 				
 			case "error":
 				errorMsg := msg["message"].(string)
-				
-				// PURE APPSTATE: Only update AppState - observer handles WebTUI
 				appState.AddMessage(fmt.Sprintf("Server error: %s", errorMsg), "error")
 				LogError("Server error: %s", errorMsg)
 				
@@ -157,9 +149,9 @@ func handleServerResponses(conn *net.UDPConn) {
 			continue
 		}
 
-		// Not JSON, try raw audio
-		if n < 4 {
-			LogError("Dropped malformed packet (too small)")
+		// Not JSON, try premium audio packet
+		if n < 6 { // Minimum: 2 bytes prefix + 2 bytes seq + 2 bytes audio
+			LogError("Dropped malformed packet (too small): %d bytes", n)
 			continue
 		}
 
@@ -170,44 +162,79 @@ func handleServerResponses(conn *net.UDPConn) {
 			continue
 		}
 
-		sampleCount := (n - 2) / 2 // skip 2 byte prefix, 2 bytes per sample
+		// Extract sequence number (premium packets)
+		seqNum := binary.LittleEndian.Uint16(buffer[2:4])
+		
+		// Calculate audio payload size
+		sampleCount := (n - 4) / 2 // Skip 4 bytes (prefix + seq), 2 bytes per sample
+		if sampleCount != framesPerBuffer {
+			LogError("Dropped frame with wrong length: got %d samples, expected %d", sampleCount, framesPerBuffer)
+			continue
+		}
+
+		// Decode audio samples
 		samples := make([]int16, sampleCount)
-		err = binary.Read(bytes.NewReader(buffer[2:n]), binary.LittleEndian, &samples)
+		err = binary.Read(bytes.NewReader(buffer[4:n]), binary.LittleEndian, &samples)
 		if err != nil {
 			LogError("Failed to decode audio: %v", err)
 			continue
 		}
 
-		if len(samples) != framesPerBuffer {
-			LogError("Dropped frame with wrong length: got %d, expected %d", len(samples), framesPerBuffer)
-			continue
+		// Track packet statistics for network quality
+		packetsReceived++
+		if packetsReceived > 1 { // Skip first packet for sequence analysis
+			expectedSeq := lastSeqNum + 1
+			if seqNum != expectedSeq {
+				if seqNum > expectedSeq {
+					// Packets were lost
+					lost := int(seqNum - expectedSeq)
+					packetsLost += lost
+					LogDebug("Packet loss detected: expected %d, got %d (%d packets lost)", 
+						expectedSeq, seqNum, lost)
+				} else {
+					// Out of order packet (late arrival)
+					LogDebug("Out-of-order packet: expected %d, got %d", expectedSeq, seqNum)
+				}
+			}
 		}
+		lastSeqNum = seqNum
 
-		// PURE APPSTATE: Only update AppState - observer handles WebTUI
+		// Update network statistics
 		appState.IncrementRX()
 		
-		maxAmp := maxAmplitude(samples)
-		if maxAmp > 50 {
-			// PURE APPSTATE: Only update AppState - observer handles WebTUI
-			level := int(float64(maxAmp) / 32767.0 * 100)
-			appState.SetAudioLevel(level)
+		// Calculate and log network quality metrics
+		if packetsReceived%100 == 0 && packetsReceived > 0 {
+			lossRate := float32(packetsLost) / float32(packetsReceived)
+			LogInfo("Network Quality - Received: %d, Lost: %d (%.2f%%), Seq: %d", 
+				packetsReceived, packetsLost, lossRate*100, seqNum)
+			
+			// Report significant packet loss
+			if lossRate > 0.05 { // More than 5% loss
+				appState.AddMessage(fmt.Sprintf("High packet loss: %.1f%%", lossRate*100), "warning")
+			}
 		}
 
-		// Calculate max amplitude - only log every 50 frames (once per second)
-		networkFrameCount++
-		if maxAmp > 50 && networkFrameCount%50 == 0 {
-			LogInfo("Receiving audio (amplitude: %d)", maxAmp)
-		}
+		// Send audio to premium jitter buffer for processing
+		audioProcessor.AddToJitterBuffer(seqNum, samples)
 
+		// QUICK FIX: Also send directly to playback channel
 		select {
 		case incomingAudio <- samples:
-			// Successfully queued
+			// Successfully queued for playback
 		default:
-			LogError("Playback buffer full, dropping packet")
-			
-			// PURE APPSTATE: Only update AppState - observer handles WebTUI
-			appState.AddMessage("Audio buffer overflow", "error")
+			// Channel full, skip to prevent blocking network thread
+			LogDebug("Playback channel full, dropping frame")
 		}
+
+		// Calculate max amplitude for logging (but don't set audio level here - jitter buffer handles that)
+		maxAmp := maxAmplitude(samples)
+		networkFrameCount++
+		if maxAmp > 50 && networkFrameCount%50 == 0 {
+			LogInfo("Receiving premium audio (seq: %d, amplitude: %d)", seqNum, maxAmp)
+		}
+
+		// Note: We no longer directly queue to incomingAudio channel
+		// The premium audio processor handles jitter buffering and playback timing
 	}
 }
 

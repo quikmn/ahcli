@@ -17,6 +17,17 @@ func main() {
 	InitLogger()
 	defer CloseLogger()
 
+	// MINIMAL ADDITION: Also log to file for debugging
+	logFile, logErr := os.OpenFile("client.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if logErr == nil {
+		defer logFile.Close()
+		// Redirect some output to file for debugging
+		go func() {
+			fmt.Fprintln(logFile, "=== CLIENT LOG STARTED ===")
+			logFile.Sync()
+		}()
+	}
+
 	// Initialize application state
 	InitAppState()
 	LogInfo("Application state initialized")
