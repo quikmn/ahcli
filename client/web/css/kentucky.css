@@ -1,0 +1,640 @@
+/* ========================================
+   KENTUCKY CYBERPUNK - Mellow Terminal Aesthetic
+   Enhanced with Chat System Polish
+   ======================================== */
+:root {
+    /* Base Colors - Warm Cyberpunk */
+    --bg-primary: #1a1a2e;      /* Deep purple-blue background */
+    --bg-secondary: #16213e;     /* Slightly lighter panels */
+    --bg-tertiary: #0f1419;      /* Darkest areas */
+    --bg-accent: #2a2550;        /* Highlighted sections */
+    
+    /* Text Colors - Creamy Terminal */
+    --text-primary: #eee2cc;     /* Creamy white text */
+    --text-secondary: #c9b99b;   /* Muted cream */
+    --text-muted: #8b7d6b;       /* Darker cream for labels */
+    --text-bright: #fff5e6;      /* Brightest text */
+    
+    /* Accent Colors - Cyberpunk Highlights */
+    --accent-pink: #ff69b4;      /* Bright pink for important stuff */
+    --accent-soft-pink: #ffb3d9; /* Matte pink for highlights */
+    --accent-blue: #64b5f6;      /* Connection status, info */
+    --accent-green: #81c784;     /* Success, audio good */
+    --accent-purple: #ba68c8;    /* Special elements */
+    --accent-orange: #ffb74d;    /* Warnings, PTT active */
+    --accent-red: #e57373;       /* Errors, disconnected */
+    
+    /* Border Colors */
+    --border-primary: #ff69b4;   /* Main pink borders */
+    --border-secondary: #64b5f6; /* Blue borders */
+    --border-muted: #4a4458;     /* Subtle borders */
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+    font-size: 14px;
+    overflow: hidden;
+}
+
+.app {
+    display: grid;
+    grid-template-rows: 60px 1fr 50px;
+    height: 100vh;
+}
+
+/* ========================================
+   HEADER - Cyberpunk Title Bar
+   ======================================== */
+.header {
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-accent) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 2px solid var(--accent-pink);
+    box-shadow: 0 2px 10px rgba(255, 105, 180, 0.2);
+}
+
+.header h1 {
+    color: var(--text-bright);
+    font-size: 18px;
+    font-weight: 300;
+    text-shadow: 0 0 10px rgba(255, 105, 180, 0.3);
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    transition: all 0.3s;
+    box-shadow: 0 0 10px rgba(229, 115, 115, 0.4);
+}
+
+.status-dot.connected {
+    background: var(--accent-green);
+    box-shadow: 0 0 10px rgba(129, 199, 132, 0.4);
+}
+
+/* ========================================
+   MAIN CONTENT GRID
+   ======================================== */
+.main-content {
+    display: grid;
+    grid-template-columns: 200px 1fr 250px;
+    height: 100%;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+/* ========================================
+   SIDEBAR - Left Panel
+   ======================================== */
+.sidebar {
+    background: var(--bg-secondary);
+    padding: 15px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-primary);
+}
+
+.section-title {
+    color: var(--accent-pink);
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-shadow: 0 0 5px rgba(255, 105, 180, 0.3);
+}
+
+.stat-item {
+    margin-bottom: 8px;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.stat-label {
+    color: var(--text-muted);
+}
+
+.stat-value {
+    color: var(--text-bright);
+    font-weight: bold;
+}
+
+/* ========================================
+   CENTER PANEL - User Chat (Terminal Style)
+   ======================================== */
+.messages {
+    background: var(--bg-tertiary);
+    padding: 0;
+    overflow: hidden;
+    border-left: 1px solid var(--border-secondary);
+    border-right: 1px solid var(--border-secondary);
+    height: 100%;
+}
+
+.user-chat-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-tertiary);
+}
+
+.user-chat-container {
+    flex: 1;
+    background: var(--bg-tertiary);
+    padding: 8px 12px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.2;
+    scroll-behavior: smooth;
+}
+
+/* Enhanced Chat Line Styling */
+.chat-line {
+    margin: 2px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background-color 0.2s ease;
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+.chat-line:hover {
+    background: rgba(255, 105, 180, 0.05);
+}
+
+/* Your own messages - distinctive styling */
+.chat-line-self {
+    background: rgba(255, 183, 77, 0.1);
+    border-left: 3px solid var(--accent-orange);
+    padding-left: 6px;
+    font-weight: 500;
+}
+
+.chat-line-self:hover {
+    background: rgba(255, 183, 77, 0.15);
+}
+
+/* Other users' messages - standard styling */
+.chat-line-other {
+    background: transparent;
+}
+
+/* System messages */
+.chat-line-system {
+    background: rgba(100, 181, 246, 0.08);
+    font-style: italic;
+    color: var(--accent-blue);
+}
+
+/* Notifications */
+.chat-line-notification {
+    background: rgba(129, 199, 132, 0.08);
+    text-align: center;
+    font-style: italic;
+    color: var(--accent-green);
+    margin: 4px 0;
+    padding: 2px 4px;
+}
+
+/* Channel Notification Styling */
+.chat-line.channel-notification {
+    color: var(--accent-blue);
+    font-style: italic;
+    text-align: center;
+    margin: 4px 0;
+    padding: 2px 4px;
+    background: rgba(100, 181, 246, 0.1);
+    border-radius: 4px;
+}
+
+.chat-line.channel-notification .chat-system {
+    color: var(--accent-blue);
+    font-weight: bold;
+}
+
+/* WoW-Style Chat Formatting */
+.chat-timestamp {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.chat-separator {
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.chat-username {
+    color: var(--accent-soft-pink);
+    font-weight: bold;
+    margin: 0 2px;
+}
+
+.chat-message {
+    color: var(--text-primary);
+    margin-left: 2px;
+}
+
+/* Your own messages - special styling */
+.chat-timestamp-self {
+    color: var(--accent-orange);
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.chat-username-self {
+    color: var(--accent-orange);
+    font-weight: bold;
+    margin: 0 2px;
+    text-shadow: 0 0 4px rgba(255, 183, 77, 0.3);
+}
+
+.chat-message-self {
+    color: var(--text-bright);
+    margin-left: 2px;
+    font-weight: 500;
+}
+
+/* System messages styling */
+.chat-timestamp-system {
+    color: var(--accent-blue);
+    font-size: 11px;
+}
+
+.chat-username-system {
+    color: var(--accent-blue);
+    font-weight: bold;
+    margin: 0 2px;
+}
+
+.chat-message-system {
+    color: var(--accent-blue);
+    margin-left: 2px;
+    font-style: italic;
+}
+
+/* Notification styling */
+.chat-timestamp-notification {
+    color: var(--accent-green);
+    font-size: 11px;
+}
+
+.chat-notification {
+    color: var(--accent-green);
+    font-weight: bold;
+    font-style: italic;
+}
+
+/* System Messages */
+.chat-line .chat-username:contains("System") {
+    color: var(--accent-blue);
+}
+
+/* Chat Input Container */
+.chat-input-container {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-primary);
+    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.chat-input {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: var(--accent-pink);
+    box-shadow: 0 0 12px rgba(255, 105, 180, 0.4), inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    background: var(--bg-primary);
+}
+
+.chat-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    border-color: var(--text-muted);
+}
+
+.chat-input::placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* ========================================
+   CHANNELS PANEL - Right Side  
+   ======================================== */
+.channels {
+    background: var(--bg-secondary);
+    padding: 15px;
+    overflow-y: auto;
+    border-left: 1px solid var(--border-primary);
+}
+
+.channel-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    margin: 3px 0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid transparent;
+}
+
+.channel-item:hover {
+    background: rgba(255, 105, 180, 0.1);
+    border-color: var(--accent-pink);
+    transform: translateX(2px);
+}
+
+.channel-item.active {
+    background: rgba(255, 105, 180, 0.2);
+    border-color: var(--accent-pink);
+    box-shadow: 0 0 10px rgba(255, 105, 180, 0.2);
+}
+
+.channel-icon {
+    margin-right: 8px;
+    color: var(--accent-pink);
+    transition: transform 0.3s ease;
+}
+
+.channel-item.active .channel-icon {
+    transform: scale(1.2);
+}
+
+.user-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 25px;
+    margin: 2px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    transition: color 0.3s ease;
+}
+
+.user-item.self {
+    color: var(--accent-orange);
+    font-weight: bold;
+}
+
+.user-item:hover {
+    color: var(--text-bright);
+}
+
+/* ========================================
+   FOOTER - Controls Bar
+   ======================================== */
+.footer {
+    background: var(--bg-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-top: 2px solid var(--accent-pink);
+    gap: 20px;
+}
+
+.ptt-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ptt-indicator {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: all 0.3s ease;
+}
+
+.ptt-indicator.active {
+    background: var(--accent-orange);
+    box-shadow: 0 0 15px rgba(255, 183, 77, 0.6);
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 15px rgba(255, 183, 77, 0.6); }
+    50% { box-shadow: 0 0 25px rgba(255, 183, 77, 0.8); }
+    100% { box-shadow: 0 0 15px rgba(255, 183, 77, 0.6); }
+}
+
+.command-input {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 12px;
+    min-width: 250px;
+    font-family: 'Courier New', monospace;
+    transition: all 0.3s ease;
+}
+
+.command-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 8px rgba(100, 181, 246, 0.3);
+}
+
+.debug-terminal-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent-purple);
+    color: var(--accent-purple);
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.debug-terminal-btn:hover {
+    background: var(--accent-purple);
+    color: var(--bg-tertiary);
+    box-shadow: 0 0 12px rgba(186, 104, 200, 0.4);
+    transform: translateY(-1px);
+}
+
+/* ========================================
+   AUDIO CONTROLS - Cyberpunk Style
+   ======================================== */
+.audio-controls {
+    margin-top: 15px;
+    padding: 12px;
+    background: var(--bg-accent);
+    border-radius: 6px;
+    border: 1px solid var(--accent-purple);
+}
+
+.preset-selector select {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: 'Courier New', monospace;
+    transition: all 0.3s ease;
+}
+
+.preset-selector select:focus {
+    outline: none;
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 8px rgba(186, 104, 200, 0.3);
+}
+
+.audio-meter {
+    flex: 1;
+    height: 10px;
+    background: var(--bg-tertiary);
+    border-radius: 5px;
+    margin-left: 8px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border-muted);
+}
+
+.audio-meter-fill {
+    height: 100%;
+    background: linear-gradient(to right, 
+        var(--accent-green) 0%, 
+        var(--accent-orange) 70%, 
+        var(--accent-red) 90%);
+    width: 0%;
+    transition: width 0.1s ease;
+    border-radius: 5px;
+}
+
+/* ========================================
+   ENHANCED VISUAL FEEDBACK
+   ======================================== */
+
+/* Smooth transitions for all interactive elements */
+button, input, select, .channel-item, .user-item {
+    transition: all 0.3s ease;
+}
+
+/* Enhanced hover effects */
+.channel-item:hover,
+.user-item:hover,
+.debug-terminal-btn:hover {
+    transform: translateX(2px);
+}
+
+/* Focus states for accessibility */
+input:focus, select:focus, button:focus {
+    outline: 2px solid var(--accent-pink);
+    outline-offset: 2px;
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Success/Error state indicators */
+.success {
+    border-color: var(--accent-green) !important;
+    box-shadow: 0 0 8px rgba(129, 199, 132, 0.3) !important;
+}
+
+.error {
+    border-color: var(--accent-red) !important;
+    box-shadow: 0 0 8px rgba(229, 115, 115, 0.3) !important;
+}
+
+/* ========================================
+   SCROLLBARS - Cyberpunk Style
+   ======================================== */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--accent-pink);
+    border-radius: 4px;
+    transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-soft-pink);
+}
+
+/* ========================================
+   RESPONSIVE & MOBILE
+   ======================================== */
+@media (max-width: 768px) {
+    .main-content {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+    }
+    
+    .sidebar,
+    .channels {
+        display: none;
+    }
+    
+    .command-input {
+        min-width: 150px;
+    }
+}
+
+/* ========================================
+   ACCESSIBILITY IMPROVEMENTS
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --bg-primary: #000000;
+        --bg-secondary: #1a1a1a;
+        --text-primary: #ffffff;
+        --accent-pink: #ff00ff;
+    }
+}

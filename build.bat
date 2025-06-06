@@ -1,6 +1,5 @@
 @echo off
 echo Building AHCLI for deployment...
-
 :: Clean and create build directory
 if exist build (
     echo Cleaning existing build directory...
@@ -16,37 +15,32 @@ echo Creating fresh build directory...
 if not exist build mkdir build
 if not exist build\server mkdir build\server
 if not exist build\client mkdir build\client
-
 :: Build server (with console)
-echo Building server...
+echo Building AHCLI server...
 cd server
-go build -o ../build/server/server.exe .
+go build -o ../build/server/ahcli-server.exe .
 if errorlevel 1 (
     echo Server build failed!
     pause
     exit /b 1
 )
 cd ..
-
 :: Build client (GUI mode - no console)
-echo Building client...
+echo Building AHCLI client...
 cd client
-go build -ldflags "-H=windowsgui" -o ../build/client/client.exe .
+go build -ldflags "-H=windowsgui" -o ../build/client/ahcli-client.exe .
 if errorlevel 1 (
     echo Client build failed!
     pause
     exit /b 1
 )
 cd ..
-
 :: Copy server config to server folder
 echo Copying server config...
 copy server\config.json build\server\ >nul
-
 :: Copy client config and dependencies to client folder
 echo Copying client config...
 copy client\settings.config build\client\ >nul
-
 :: Handle PortAudio DLL with proper renaming (to client folder)
 echo Processing PortAudio library...
 if exist "client\libportaudio64bit.dll" (
@@ -60,7 +54,6 @@ if exist "client\libportaudio64bit.dll" (
 ) else (
     echo WARNING: libportaudio64bit.dll not found in client folder
 )
-
 :: Copy any other DLLs to client folder (except the 64bit one we already renamed)
 echo Copying other runtime dependencies...
 for %%f in ("client\*.dll") do (
@@ -69,7 +62,6 @@ for %%f in ("client\*.dll") do (
         copy "%%f" "build\client\" >nul
     )
 )
-
 :: Copy chromium for deployment (to root of build folder)
 echo Copying Chromium browser...
 if exist chromium (
@@ -83,35 +75,32 @@ if exist chromium (
 ) else (
     echo WARNING: Chromium folder not found
 )
-
 :: Copy executables to dev environment for local testing
 echo Copying executables to dev folders for local testing...
-copy build\server\server.exe server\ >nul
-copy build\client\client.exe client\ >nul
+copy build\server\ahcli-server.exe server\ >nul
+copy build\client\ahcli-client.exe client\ >nul
 echo SUCCESS: Executables copied to dev folders
-
 :: Clean up any backup files
 echo Cleaning backup files...
 del build\server\*.exe~ >nul 2>&1
 del build\client\*.exe~ >nul 2>&1
 del build\*~ >nul 2>&1
-
 echo.
 echo Deployment build complete! Structure:
 echo build/
 echo   server/
-echo     server.exe
+echo     ahcli-server.exe
 echo     config.json
 echo   client/
-echo     client.exe
+echo     ahcli-client.exe
 echo     settings.config
 echo     libportaudio.dll
 echo   chromium/
 echo     [browser files]
 echo.
 echo Dev environment updated:
-echo   server/server.exe (ready to run)
-echo   client/client.exe (ready to run)
+echo   server/ahcli-server.exe (ready to run)
+echo   client/ahcli-client.exe (ready to run)
 echo.
 echo For deployment: Copy entire build/ folder to target machine
 echo For dev testing: Use run-server.bat and run-client.bat

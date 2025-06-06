@@ -1,0 +1,25 @@
+<!-- PTT Status -->
+<div class="ptt-status">
+    <div class="ptt-indicator" id="pttIndicator"></div>
+    <span id="pttText">Ready</span>
+    <div class="audio-bar" id="audioBar">
+        <!-- Audio level bars -->
+    </div>
+</div>
+
+<!-- Command Input -->
+<input type="text" class="command-input" id="commandInput"
+       placeholder="Type /join channel, /quit, /help..." />
+
+<!-- Footer Controls -->
+<div class="footer-controls">
+    <!-- Debug Terminal Button -->
+    <button class="debug-terminal-btn" onclick="DebugTerminal.toggle()" title="Open Debug Terminal">
+        🔧 Debug
+    </button>
+    
+    <!-- Network Stats -->
+    <div class="network-stats">
+        <span id="pttKeyText">Hold LSHIFT to transmit</span>
+    </div>
+</div>

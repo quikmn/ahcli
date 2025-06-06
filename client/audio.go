@@ -23,7 +23,7 @@ var (
 	playbackStream *portaudio.Stream
 	incomingAudio  = make(chan []int16, 100)
 	serverConn     *net.UDPConn
-	
+
 	// Premium audio processing
 	audioProcessor *AudioProcessor
 	sequenceNumber uint16 = 0
@@ -36,14 +36,14 @@ func audioSend(samples []int16) {
 	}
 
 	// BYPASS PROCESSING FOR DEBUG - send raw samples
-	processedSamples := samples  // Skip all processing
+	processedSamples := samples // Skip all processing
 
 	// Create enhanced packet with sequence number
 	buf := make([]byte, 4+len(processedSamples)*2)
-	binary.LittleEndian.PutUint16(buf[0:2], 0x5541) // Prefix 'AU'
+	binary.LittleEndian.PutUint16(buf[0:2], 0x5541)         // Prefix 'AU'
 	binary.LittleEndian.PutUint16(buf[2:4], sequenceNumber) // Sequence number
 	binary.Write(sliceWriter(buf[4:]), binary.LittleEndian, processedSamples)
-	
+
 	sequenceNumber++
 
 	_, err := serverConn.Write(buf)
@@ -100,24 +100,24 @@ func InitAudio() error {
 	LogInfo("Output stream started successfully")
 	fmt.Println("Audio output stream STARTED")
 
-	// Start input goroutine with premium processing
+	// Start enhanced input goroutine with bypass and dual-level tracking
 	go func() {
-		LogInfo("Premium input goroutine started")
+		LogInfo("Enhanced audio input goroutine started with bypass capability")
 		var lastPTTState bool
 		var frameCount int
 
 		for {
 			pttActive := IsPTTActive()
-			
+
 			// Update PTT state
 			appState.SetPTTActive(pttActive)
 
-			// Only log PTT state changes, not every frame
+			// Log PTT state changes only
 			if pttActive != lastPTTState {
 				if pttActive {
-					LogInfo("Started transmitting with premium audio processing")
+					LogInfo("Started transmitting with enhanced audio processing")
 					frameCount = 0
-					appState.AddMessage("● Transmitting (Premium)", "ptt")
+					appState.AddMessage("● Transmitting", "ptt")
 				} else {
 					LogInfo("Stopped transmitting")
 					appState.AddMessage("○ Ready", "info")
@@ -131,58 +131,94 @@ func InitAudio() error {
 					continue
 				}
 				frameCount++
-				
-				// Get audio stats from processor
-				stats := audioProcessor.GetStats()
-				
-				// Update audio level based on processed audio
-				if stats.InputLevel > 0 {
-					level := int(stats.InputLevel * 100)
-					appState.SetAudioLevel(level)
+
+				// Calculate RAW input level (before any processing)
+				var sumSquares float64 = 0
+				for _, sample := range in {
+					sumSquares += float64(sample) * float64(sample)
+				}
+				rawRMS := math.Sqrt(sumSquares / float64(len(in)))
+				rawInputLevel := float32(rawRMS / 32767.0)
+
+				// Send raw level to AppState immediately
+				appState.SetRawInputLevel(rawInputLevel)
+
+				// Process through audio chain (or bypass)
+				var processedSamples []int16
+				if audioProcessor != nil && audioProcessor.IsBypassed() {
+					// BYPASS: Use raw samples
+					processedSamples = in
+					appState.SetProcessedInputLevel(rawInputLevel) // Same as raw when bypassed
+				} else {
+					// PROCESS: Run through audio chain
+					processedSamples = audioProcessor.ProcessInputAudio(in)
+
+					// Calculate PROCESSED input level
+					var processedSumSquares float64 = 0
+					for _, sample := range processedSamples {
+						processedSumSquares += float64(sample) * float64(sample)
+					}
+					processedRMS := math.Sqrt(processedSumSquares / float64(len(processedSamples)))
+					processedInputLevel := float32(processedRMS / 32767.0)
+
+					// Send processed level to AppState
+					appState.SetProcessedInputLevel(processedInputLevel)
 				}
 
-				// Log processing stats occasionally
-				if frameCount%50 == 0 {
-					LogInfo("Premium Audio - Input: %.1f%%, Compression: %.2f, Gate: %t, Quality: %s", 
-						stats.InputLevel*100, stats.CompressionGain, stats.NoiseGateOpen, stats.AudioQuality)
+				// Update comprehensive audio stats every 10 frames
+				if frameCount%10 == 0 {
+					stats := audioProcessor.GetStats()
+					stats.InputLevel = rawInputLevel // Ensure raw level is in stats
+					appState.SetAudioStats(stats)
+
+					// Log processing comparison occasionally
+					if frameCount%50 == 0 {
+						LogInfo("Audio Levels - Raw: %.1f%%, Processed: %.1f%%, Bypass: %t",
+							rawInputLevel*100,
+							appState.GetProcessedInputLevel()*100,
+							audioProcessor.IsBypassed())
+					}
 				}
-				
-				audioSend(in)
+
+				// Send the processed (or bypassed) audio
+				audioSend(processedSamples)
+
 			} else {
-				// Reset audio level when not transmitting
-				appState.SetAudioLevel(0)
+				// Reset levels when not transmitting
+				appState.SetRawInputLevel(0)
+				appState.SetProcessedInputLevel(0)
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
 	}()
 
-	// Start simple playback goroutine (BACK TO BASICS)
+	// Start enhanced playback goroutine with visualization support
 	go func() {
-		LogInfo("Simple playback goroutine started (jitter buffer disabled)")
-		fmt.Println("=== PLAYBACK GOROUTINE STARTED ===") // GUARANTEED OUTPUT
-		
+		LogInfo("Enhanced playback goroutine started with visualization support")
+		fmt.Println("=== ENHANCED PLAYBACK GOROUTINE STARTED ===") // GUARANTEED OUTPUT
+
 		// MINIMAL ADDITION: Log to file
 		if logFile, err := os.OpenFile("client.log", os.O_APPEND|os.O_WRONLY, 0666); err == nil {
-			fmt.Fprintln(logFile, "=== PLAYBACK GOROUTINE STARTED ===")
+			fmt.Fprintln(logFile, "=== ENHANCED PLAYBACK GOROUTINE STARTED ===")
 			logFile.Close()
 		}
-		
+
 		var playbackFrameCount int
 		var lastPacketTime time.Time
 		var timingLogCount int
 
 		for samples := range incomingAudio {
 			now := time.Now()
-			
+
 			// WAN DIAGNOSTIC: Track timing between packets
 			if !lastPacketTime.IsZero() {
 				timeSinceLastPacket := now.Sub(lastPacketTime)
 				timingLogCount++
-				
+
 				// Log every 10th packet to avoid spam, but catch timing issues
 				if timingLogCount%10 == 0 || timeSinceLastPacket > 40*time.Millisecond || timeSinceLastPacket < 10*time.Millisecond {
 					fmt.Printf("🕐 PACKET TIMING: %v since last (should be ~20ms)\n", timeSinceLastPacket)
-					
+
 					// Log significant timing anomalies to file
 					if logFile, err := os.OpenFile("client.log", os.O_APPEND|os.O_WRONLY, 0666); err == nil {
 						fmt.Fprintf(logFile, "PACKET TIMING: %v since last\n", timeSinceLastPacket)
@@ -199,27 +235,34 @@ func InitAudio() error {
 				fmt.Fprintln(logFile, "*** RECEIVED AUDIO PACKET ***")
 				logFile.Close()
 			}
-		
+
 			// DEBUG: Check sample content and audio device
 			maxAmp := maxAmplitude(samples)
 			fmt.Printf("PLAYBACK DEBUG - Samples: %d, Max Amplitude: %d\n", len(samples), maxAmp)
-		
+
 			// Log to file too
 			if logFile, err := os.OpenFile("client.log", os.O_APPEND|os.O_WRONLY, 0666); err == nil {
 				fmt.Fprintf(logFile, "PLAYBACK DEBUG - Samples: %d, Max Amplitude: %d\n", len(samples), maxAmp)
 				logFile.Close()
 			}
-			
+
 			playbackFrameCount++
 			if maxAmp > 50 && playbackFrameCount%50 == 0 {
 				LogInfo("Playing audio (amplitude: %d)", maxAmp)
 				fmt.Printf("Playing audio (amplitude: %d)\n", maxAmp)
 			}
 
-			// Update audio level based on received audio
+			// Update output level for visualization based on received audio
 			if maxAmp > 50 {
-				level := int(float64(maxAmp) / 32767.0 * 100)
+				// Calculate output level for visualization
+				outputLevel := float32(maxAmp) / 32767.0
+
+				// Update legacy audio level
+				level := int(outputLevel * 100)
 				appState.SetAudioLevel(level)
+
+				// TODO: Add output level to AppState when we implement output visualization
+				// For now, the input visualization shows transmission, this shows reception
 			}
 
 			copy(out, samples)
@@ -232,22 +275,25 @@ func InitAudio() error {
 		fmt.Println("=== PLAYBACK GOROUTINE ENDED ===") // Should never see this
 	}()
 
-	// Start audio quality monitoring
+	// Start enhanced audio quality monitoring with visualization updates
 	go func() {
-		qualityTicker := time.NewTicker(5 * time.Second)
+		qualityTicker := time.NewTicker(2 * time.Second) // More frequent for better visualization
 		defer qualityTicker.Stop()
-		
+
 		for range qualityTicker.C {
 			stats := audioProcessor.GetStats()
-			
-			// Update AppState with audio quality info
+
+			// Update AppState with comprehensive audio quality info
+			appState.SetAudioStats(stats)
+
+			// Report significant issues to user
 			if stats.PacketLoss > 0.05 {
-				appState.AddMessage(fmt.Sprintf("Audio Quality: %s (%.1f%% loss)", 
+				appState.AddMessage(fmt.Sprintf("Audio Quality: %s (%.1f%% loss)",
 					stats.AudioQuality, stats.PacketLoss*100), "warning")
 			}
-			
+
 			// Log detailed stats for debugging
-			LogDebug("Audio Stats - Quality: %s, Latency: %v, Loss: %.2f%%, Jitter: %v", 
+			LogDebug("Audio Stats - Quality: %s, Latency: %v, Loss: %.2f%%, Jitter: %v",
 				stats.AudioQuality, stats.BufferLatency, stats.PacketLoss*100, stats.NetworkJitter)
 		}
 	}()
@@ -286,9 +332,9 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 
 // TestAudioPipeline generates a test tone to verify premium audio processing
 func TestAudioPipeline() {
-	LogInfo("Starting premium audio pipeline test...")
+	LogInfo("Starting premium audio pipeline test with visualization...")
 
-	appState.AddMessage("Testing premium audio processing...", "info")
+	appState.AddMessage("Testing premium audio processing with visualization...", "info")
 
 	// Generate a more sophisticated test signal
 	testSamples := make([]int16, framesPerBuffer)
@@ -300,19 +346,32 @@ func TestAudioPipeline() {
 		testSamples[i] = amplitude
 	}
 
+	// Calculate test signal level for visualization
+	var sumSquares float64 = 0
+	for _, sample := range testSamples {
+		sumSquares += float64(sample) * float64(sample)
+	}
+	testLevel := float32(math.Sqrt(sumSquares/float64(len(testSamples))) / 32767.0)
+
+	// Update visualization with test signal
+	appState.SetInputLevel(testLevel)
+
 	// Process through premium audio pipeline
 	processedSamples := audioProcessor.ProcessInputAudio(testSamples)
-	
+
 	LogInfo("Generated test tone: %d samples, processed with premium pipeline", len(processedSamples))
 	LogInfo("Max amplitude - Original: %d, Processed: %d", maxAmplitude(testSamples), maxAmplitude(processedSamples))
 
 	// Send to jitter buffer for playback
 	audioProcessor.AddToJitterBuffer(9999, processedSamples) // Special sequence for test
-	
-	// Get processing stats
-	stats := audioProcessor.GetStats()
-	LogInfo("Premium Audio Test - Quality: %s, Noise Gate: %t, Compression: %.2f", 
-		stats.AudioQuality, stats.NoiseGateOpen, stats.CompressionGain)
 
-	appState.AddMessage("Premium audio test completed successfully", "success")
+	// Get processing stats and update visualization
+	stats := audioProcessor.GetStats()
+	stats.InputLevel = testLevel // Override with actual test level
+	appState.SetAudioStats(stats)
+
+	LogInfo("Premium Audio Test - Quality: %s, Noise Gate: %t, Compression: %.2f, Level: %.1f%%",
+		stats.AudioQuality, stats.NoiseGateOpen, stats.CompressionGain, testLevel*100)
+
+	appState.AddMessage("Premium audio test with visualization completed successfully", "success")
 }

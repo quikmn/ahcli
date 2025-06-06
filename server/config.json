@@ -5,7 +5,23 @@
   "admin_key": "admin-secret",
   "motd": "Welcome to ahcli.",
   "channels": [
-    { "name": "General", "allow_speak": true },
-    { "name": "AFK", "allow_speak": false, "allow_listen": false }
-  ]
+    {
+      "guid": "bd6dea33-5ce9-9647-52e4-b26a15d2fd25",
+      "name": "General",
+      "allow_speak": true,
+      "allow_listen": true
+    },
+    {
+      "guid": "1143bc2d-80ad-0856-9249-2a95941a0b08",
+      "name": "AFK",
+      "allow_speak": false,
+      "allow_listen": false
+    }
+  ],
+  "chat": {
+    "enabled": true,
+    "log_file": "chat.log",
+    "max_messages": 100000,
+    "load_recent_on_join": 100
+  }
 }

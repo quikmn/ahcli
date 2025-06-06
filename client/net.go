@@ -51,13 +51,13 @@ func connectToServer(config *ClientConfig) error {
 	case "accept":
 		var accepted common.ConnectAccepted
 		json.Unmarshal(buffer[:n], &accepted)
-		
+
 		currentChannel = "General" // Default channel
-		
+
 		appState.SetConnected(true, accepted.Nickname, accepted.ServerName, accepted.MOTD)
 		appState.SetChannel(currentChannel)
 		appState.SetChannels(accepted.Channels)
-		
+
 		// Initialize channel users - put all users in the default channel for now
 		channelUsers := make(map[string][]string)
 		for _, channel := range accepted.Channels {
@@ -67,14 +67,14 @@ func connectToServer(config *ClientConfig) error {
 		if len(accepted.Channels) > 0 {
 			channelUsers[currentChannel] = accepted.Users
 		}
-		
+
 		appState.SetChannelUsers(channelUsers)
-		
+
 		LogInfo("Connected as: %s", accepted.Nickname)
 		LogInfo("MOTD: %s", accepted.MOTD)
 		LogInfo("Channels: %v", accepted.Channels)
 		LogInfo("Users: %v", accepted.Users)
-		
+
 	case "reject":
 		var reject common.Reject
 		json.Unmarshal(buffer[:n], &reject)
@@ -105,8 +105,48 @@ func changeChannel(channel string) {
 	}
 	data, _ := json.Marshal(change)
 	serverConn.Write(data)
-	
+
 	LogInfo("Requested channel switch to: %s", channel)
+}
+
+// Send chat message to server
+func sendChatMessage(message string) {
+	if serverConn == nil {
+		LogError("Not connected to server")
+		appState.AddMessage("Cannot send chat: not connected", "error")
+		return
+	}
+
+	if currentChannel == "" {
+		LogError("No current channel for chat")
+		appState.AddMessage("Cannot send chat: no channel", "error")
+		return
+	}
+
+	// Get current user nickname
+	state := appState.GetState()
+	nickname := state["nickname"].(string)
+
+	chatMsg := map[string]string{
+		"type":     "chat",
+		"channel":  currentChannel,
+		"message":  message,
+		"username": nickname,
+	}
+
+	data, err := json.Marshal(chatMsg)
+	if err != nil {
+		LogError("Failed to marshal chat message: %v", err)
+		return
+	}
+
+	_, err = serverConn.Write(data)
+	if err != nil {
+		LogError("Failed to send chat message: %v", err)
+		appState.AddMessage("Failed to send chat message", "error")
+	} else {
+		LogInfo("✅ Sent chat message to server: %s", message)
+	}
 }
 
 func handleServerResponses(conn *net.UDPConn) {
@@ -115,7 +155,7 @@ func handleServerResponses(conn *net.UDPConn) {
 	var lastSeqNum uint16 = 0
 	var packetsReceived int
 	var packetsLost int
-	
+
 	for {
 		n, _, err := conn.ReadFromUDP(buffer)
 		if err != nil {
@@ -125,24 +165,41 @@ func handleServerResponses(conn *net.UDPConn) {
 			return
 		}
 
-		// Try to parse JSON first (control messages)
+		// Try to parse JSON first (control messages including chat)
 		var msg map[string]interface{}
 		if err := json.Unmarshal(buffer[:n], &msg); err == nil {
 			switch msg["type"] {
 			case "channel_changed":
 				channelName := msg["channel"].(string)
 				currentChannel = channelName
-				
+
 				appState.SetChannel(channelName)
 				LogInfo("You are now in channel: %s", channelName)
-				
+
 			case "error":
 				errorMsg := msg["message"].(string)
 				appState.AddMessage(fmt.Sprintf("Server error: %s", errorMsg), "error")
 				LogError("Server error: %s", errorMsg)
-				
+
 			case "pong":
 				// silently accepted
+
+			case "channel_users_update":
+				var update struct {
+					ChannelUsers map[string][]string `json:"channelUsers"`
+				}
+				if err := json.Unmarshal(buffer[:n], &update); err == nil {
+					appState.SetChannelUsers(update.ChannelUsers)
+				}
+
+			case "chat_message":
+				LogInfo("🔍 DEBUG: Received chat_message from server")
+				handleIncomingChatMessage(buffer[:n])
+
+			case "chat_history":
+				LogInfo("🔍 DEBUG: Received chat_history from server")
+				handleChatHistory(buffer[:n])
+
 			default:
 				LogInfo("Server message: %v", msg)
 			}
@@ -157,14 +214,14 @@ func handleServerResponses(conn *net.UDPConn) {
 
 		// Validate audio packet prefix
 		prefix := binary.LittleEndian.Uint16(buffer[0:2])
-		if prefix != 0x5541 { // 'AU' 
+		if prefix != 0x5541 { // 'AU'
 			LogError("Dropped packet with invalid prefix: 0x%04X", prefix)
 			continue
 		}
 
 		// Extract sequence number (premium packets)
 		seqNum := binary.LittleEndian.Uint16(buffer[2:4])
-		
+
 		// Calculate audio payload size
 		sampleCount := (n - 4) / 2 // Skip 4 bytes (prefix + seq), 2 bytes per sample
 		if sampleCount != framesPerBuffer {
@@ -189,7 +246,7 @@ func handleServerResponses(conn *net.UDPConn) {
 					// Packets were lost
 					lost := int(seqNum - expectedSeq)
 					packetsLost += lost
-					LogDebug("Packet loss detected: expected %d, got %d (%d packets lost)", 
+					LogDebug("Packet loss detected: expected %d, got %d (%d packets lost)",
 						expectedSeq, seqNum, lost)
 				} else {
 					// Out of order packet (late arrival)
@@ -201,13 +258,13 @@ func handleServerResponses(conn *net.UDPConn) {
 
 		// Update network statistics
 		appState.IncrementRX()
-		
+
 		// Calculate and log network quality metrics
 		if packetsReceived%100 == 0 && packetsReceived > 0 {
 			lossRate := float32(packetsLost) / float32(packetsReceived)
-			LogInfo("Network Quality - Received: %d, Lost: %d (%.2f%%), Seq: %d", 
+			LogInfo("Network Quality - Received: %d, Lost: %d (%.2f%%), Seq: %d",
 				packetsReceived, packetsLost, lossRate*100, seqNum)
-			
+
 			// Report significant packet loss
 			if lossRate > 0.05 { // More than 5% loss
 				appState.AddMessage(fmt.Sprintf("High packet loss: %.1f%%", lossRate*100), "warning")
@@ -232,9 +289,84 @@ func handleServerResponses(conn *net.UDPConn) {
 		if maxAmp > 50 && networkFrameCount%50 == 0 {
 			LogInfo("Receiving premium audio (seq: %d, amplitude: %d)", seqNum, maxAmp)
 		}
+	}
+}
 
-		// Note: We no longer directly queue to incomingAudio channel
-		// The premium audio processor handles jitter buffering and playback timing
+// Handle incoming chat messages - FIXED PARSING
+func handleIncomingChatMessage(data []byte) {
+	var chatMsg struct {
+		Type      string `json:"type"`
+		GUID      string `json:"guid"`
+		Channel   string `json:"channel"`
+		Username  string `json:"username"`
+		Message   string `json:"message"`
+		Timestamp string `json:"timestamp"`
+	}
+
+	if err := json.Unmarshal(data, &chatMsg); err != nil {
+		LogError("Failed to parse incoming chat message: %v", err)
+		return
+	}
+
+	LogInfo("🔍 DEBUG: Raw server data - Channel: %s, User: %s, Message: %s, Timestamp: %s",
+		chatMsg.Channel, chatMsg.Username, chatMsg.Message, chatMsg.Timestamp)
+
+	// Create consistent format: [HH:MM] <username> message
+	// Use the timestamp from server, but ensure consistent format
+	var formattedTimestamp string
+	if len(chatMsg.Timestamp) == 5 && chatMsg.Timestamp[2] == ':' {
+		// Already HH:MM format
+		formattedTimestamp = fmt.Sprintf("[%s]", chatMsg.Timestamp)
+	} else {
+		// Use current time if server timestamp is weird
+		now := time.Now()
+		formattedTimestamp = fmt.Sprintf("[%02d:%02d]", now.Hour(), now.Minute())
+	}
+
+	// CONSISTENT FORMAT: [HH:MM] <username> message
+	chatDisplayMsg := fmt.Sprintf("%s <%s> %s", formattedTimestamp, chatMsg.Username, chatMsg.Message)
+
+	// Add to app state as a chat message - ONLY ONCE
+	appState.AddMessage(chatDisplayMsg, "chat")
+
+	LogInfo("🔍 DEBUG: Added formatted chat message: %s", chatDisplayMsg)
+}
+
+// Handle chat history - FIXED PARSING
+func handleChatHistory(data []byte) {
+	var historyMsg struct {
+		Type     string `json:"type"`
+		GUID     string `json:"guid"`
+		Channel  string `json:"channel"`
+		Messages []struct {
+			Username  string    `json:"username"`
+			Message   string    `json:"message"`
+			Timestamp time.Time `json:"timestamp"`
+		} `json:"messages"`
+	}
+
+	if err := json.Unmarshal(data, &historyMsg); err != nil {
+		LogError("Failed to parse chat history: %v", err)
+		return
+	}
+
+	LogInfo("🔍 DEBUG: Received %d chat history messages for channel %s", len(historyMsg.Messages), historyMsg.Channel)
+
+	// Add history messages with consistent formatting
+	for _, msg := range historyMsg.Messages {
+		// Format timestamp consistently as [HH:MM]
+		timestamp := fmt.Sprintf("[%02d:%02d]", msg.Timestamp.Hour(), msg.Timestamp.Minute())
+
+		// CONSISTENT FORMAT: [HH:MM] <username> message
+		chatDisplayMsg := fmt.Sprintf("%s <%s> %s", timestamp, msg.Username, msg.Message)
+
+		// Add as chat message
+		appState.AddMessage(chatDisplayMsg, "chat")
+		LogInfo("🔍 DEBUG: Added history message: %s", chatDisplayMsg)
+	}
+
+	if len(historyMsg.Messages) > 0 {
+		appState.AddMessage(fmt.Sprintf("--- Loaded %d recent messages for #%s ---", len(historyMsg.Messages), historyMsg.Channel), "info")
 	}
 }
 

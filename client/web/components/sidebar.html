@@ -1,0 +1,121 @@
+<div class="section-title">Connection</div>
+<div class="stat-item">
+    <span class="stat-label">User:</span>
+    <span class="stat-value" id="nickname">-</span>
+</div>
+<div class="stat-item">
+    <span class="stat-label">Uptime:</span>
+    <span class="stat-value" id="uptime">-</span>
+</div>
+
+<div class="section-title" style="margin-top: 20px;">Network</div>
+<div class="stat-item">
+    <span class="stat-label">RX:</span>
+    <span class="stat-value" id="packetsRx">0</span>
+</div>
+<div class="stat-item">
+    <span class="stat-label">TX:</span>
+    <span class="stat-value" id="packetsTx">0</span>
+</div>
+
+<div class="section-title" style="margin-top: 20px;">Channel</div>
+<div class="stat-item">
+    <span class="stat-value" id="currentChannel">None</span>
+</div>
+
+<!-- Audio Processing Controls -->
+<div class="section-title" style="margin-top: 20px;">Audio Processing</div>
+<div class="audio-controls">
+    <div class="preset-selector">
+        <label>Preset:</label>
+        <select id="audioPreset" onchange="AudioViz.changePreset(this.value)">
+            <option value="off">Off</option>
+            <option value="light">Light</option>
+            <option value="balanced">Balanced</option>
+            <option value="aggressive">Aggressive</option>
+            <option value="custom">Custom</option>
+        </select>
+    </div>
+    
+    <div class="audio-meters">
+        <div class="meter-row">
+            <span>🎤 In:</span>
+            <div class="audio-meter">
+                <div class="audio-meter-fill" id="inputMeterFill"></div>
+            </div>
+        </div>
+        <div class="meter-row">
+            <span>🔊 Out:</span>
+            <div class="audio-meter">
+                <div class="audio-meter-fill" id="outputMeterFill"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Expandable Detailed Controls -->
+    <div class="advanced-controls" id="advancedControls">
+        <div class="control-header" onclick="AudioViz.toggleAdvanced()">
+            <span>🔧 Advanced Controls</span>
+            <span class="toggle-arrow" id="toggleArrow">▼</span>
+        </div>
+        
+        <div class="control-panels" id="controlPanels">
+            <!-- Noise Gate Controls -->
+            <div class="control-panel">
+                <div class="panel-header">
+                    <input type="checkbox" id="noiseGateEnabled" onchange="AudioViz.updateSetting('noiseGate', 'enabled', this.checked)">
+                    <label for="noiseGateEnabled">🚪 Noise Gate</label>
+                </div>
+                <div class="slider-control">
+                    <label>Threshold: <span id="noiseGateValue">-40dB</span></label>
+                    <input type="range" id="noiseGateThreshold" min="-60" max="-10" value="-40" step="1" 
+                           oninput="AudioViz.updateSliderValue('noiseGate', 'threshold', this.value)" 
+                           onchange="AudioViz.updateSetting('noiseGate', 'threshold', this.value)">
+                </div>
+            </div>
+
+            <!-- Compressor Controls -->
+            <div class="control-panel">
+                <div class="panel-header">
+                    <input type="checkbox" id="compressorEnabled" onchange="AudioViz.updateSetting('compressor', 'enabled', this.checked)">
+                    <label for="compressorEnabled">📈 Compressor</label>
+                </div>
+                <div class="slider-control">
+                    <label>Threshold: <span id="compThresholdValue">-18dB</span></label>
+                    <input type="range" id="compThreshold" min="-30" max="-6" value="-18" step="1" 
+                           oninput="AudioViz.updateSliderValue('compressor', 'threshold', this.value)" 
+                           onchange="AudioViz.updateSetting('compressor', 'threshold', this.value)">
+                </div>
+                <div class="slider-control">
+                    <label>Ratio: <span id="compRatioValue">3.0:1</span></label>
+                    <input type="range" id="compRatio" min="1" max="10" value="3" step="0.1" 
+                           oninput="AudioViz.updateSliderValue('compressor', 'ratio', this.value)" 
+                           onchange="AudioViz.updateSetting('compressor', 'ratio', this.value)">
+                </div>
+            </div>
+
+            <!-- Makeup Gain Controls -->
+            <div class="control-panel">
+                <div class="panel-header">
+                    <input type="checkbox" id="makeupGainEnabled" onchange="AudioViz.updateSetting('makeupGain', 'enabled', this.checked)">
+                    <label for="makeupGainEnabled">🔊 Makeup Gain</label>
+                </div>
+                <div class="slider-control">
+                    <label>Gain: <span id="makeupGainValue">+6dB</span></label>
+                    <input type="range" id="makeupGainLevel" min="0" max="15" value="6" step="0.5" 
+                           oninput="AudioViz.updateSliderValue('makeupGain', 'gain', this.value)" 
+                           onchange="AudioViz.updateSetting('makeupGain', 'gain', this.value)">
+                </div>
+            </div>
+
+            <!-- Test & Reset -->
+            <div class="control-actions">
+                <button class="action-btn" onclick="AudioViz.testMicrophone()">🎤 Test Mic</button>
+                <button class="action-btn" onclick="AudioViz.resetDefaults()">🔄 Reset</button>
+                <button class="action-btn save" onclick="AudioViz.saveCustom()">💾 Save Custom</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="preset-status" id="presetStatus">Processing: Off</div>
+</div>

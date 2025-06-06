@@ -1,3 +1,5 @@
+// FILE: server/main.go
+
 package main
 
 import (
@@ -7,18 +9,27 @@ import (
 )
 
 type Channel struct {
-	Name        string `json:"name"`
-	AllowSpeak  bool   `json:"allow_speak"`
-	AllowListen bool   `json:"allow_listen"`
+	GUID        string `json:"guid"`         // NEW: Permanent channel identifier
+	Name        string `json:"name"`         // Human-readable name (changeable)
+	AllowSpeak  bool   `json:"allow_speak"`  // Can users transmit voice
+	AllowListen bool   `json:"allow_listen"` // Can users receive voice
+}
+
+type ChatConfig struct {
+	Enabled          bool   `json:"enabled"`             // Enable/disable chat system
+	LogFile          string `json:"log_file"`            // Chat log file path
+	MaxMessages      int    `json:"max_messages"`        // Circular buffer size
+	LoadRecentOnJoin int    `json:"load_recent_on_join"` // Messages to load when joining channel
 }
 
 type ServerConfig struct {
-	ServerName string    `json:"server_name"`
-	ListenPort int       `json:"listen_port"`
-	SharedKey  string    `json:"shared_key"`
-	AdminKey   string    `json:"admin_key"`
-	MOTD       string    `json:"motd"`
-	Channels   []Channel `json:"channels"`
+	ServerName string     `json:"server_name"`
+	ListenPort int        `json:"listen_port"`
+	SharedKey  string     `json:"shared_key"`
+	AdminKey   string     `json:"admin_key"`
+	MOTD       string     `json:"motd"`
+	Channels   []Channel  `json:"channels"`
+	Chat       ChatConfig `json:"chat"` // NEW: Chat configuration
 }
 
 var serverConfig *ServerConfig
@@ -53,9 +64,21 @@ func main() {
 	LogDebug("Server Name: %s", config.ServerName)
 	LogDebug("Port: %d", config.ListenPort)
 	LogDebug("MOTD: %s", config.MOTD)
+	LogDebug("Chat enabled: %t", config.Chat.Enabled)
+
 	for _, ch := range config.Channels {
-		LogDebug("Channel: %s (speak: %t, listen: %t)", ch.Name, ch.AllowSpeak, ch.AllowListen)
+		LogDebug("Channel: %s (GUID: %s, speak: %t, listen: %t)",
+			ch.Name, ch.GUID, ch.AllowSpeak, ch.AllowListen)
 	}
+
+	// Initialize chat storage system
+	err = InitChatStorage(config)
+	if err != nil {
+		fmt.Printf("Failed to initialize chat system: %v\n", err)
+		LogError("Failed to initialize chat system: %v", err)
+		return
+	}
+	defer CloseChatStorage()
 
 	LogInfo("Starting UDP server on port %d", config.ListenPort)
 	startUDPServer(config)

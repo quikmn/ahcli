@@ -5,8 +5,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/gordonklaus/portaudio"
@@ -51,17 +51,17 @@ func main() {
 	currentConfig = config
 
 	LogInfo("Client config loaded successfully")
-	
+
 	// Apply audio processing settings from config
 	LogInfo("Audio preset: %s", config.AudioProcessing.Preset)
-	LogInfo("Noise gate: enabled=%t, threshold=%.1fdB", 
-		config.AudioProcessing.NoiseGate.Enabled, 
+	LogInfo("Noise gate: enabled=%t, threshold=%.1fdB",
+		config.AudioProcessing.NoiseGate.Enabled,
 		config.AudioProcessing.NoiseGate.ThresholdDB)
-	LogInfo("Compressor: enabled=%t, threshold=%.1fdB, ratio=%.1f", 
+	LogInfo("Compressor: enabled=%t, threshold=%.1fdB, ratio=%.1f",
 		config.AudioProcessing.Compressor.Enabled,
 		config.AudioProcessing.Compressor.ThresholdDB,
 		config.AudioProcessing.Compressor.Ratio)
-	LogInfo("Makeup gain: enabled=%t, gain=%.1fdB", 
+	LogInfo("Makeup gain: enabled=%t, gain=%.1fdB",
 		config.AudioProcessing.MakeupGain.Enabled,
 		config.AudioProcessing.MakeupGain.GainDB)
 
@@ -82,7 +82,7 @@ func main() {
 		return
 	}
 	LogInfo("Audio initialized successfully")
-	
+
 	// Apply audio config to processor AFTER audio init
 	applyAudioConfigToProcessor(config)
 	LogInfo("Audio processing settings applied from config")
@@ -98,7 +98,7 @@ func main() {
 
 	// PURE APPSTATE: Only update AppState - observer handles WebTUI
 	appState.SetPTTKey(config.PTTKey)
-	
+
 	// Welcome messages - PURE APPSTATE only
 	appState.AddMessage("AHCLI Voice Chat ready!", "info")
 	appState.AddMessage(fmt.Sprintf("Hold %s to transmit", config.PTTKey), "info")
@@ -140,14 +140,14 @@ func main() {
 	go func() {
 		// PURE APPSTATE: Only update AppState - observer handles WebTUI
 		appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
-		
+
 		err := connectToServer(config)
 		if err != nil {
 			LogError("Connection error: %v", err)
-			
+
 			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			appState.AddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
-			
+
 			time.Sleep(2 * time.Second)
 			os.Exit(1)
 		}
@@ -170,9 +170,9 @@ func main() {
 // createHiddenWindow creates an invisible window to receive tray messages
 func createHiddenWindow() error {
 	hInstance, _, _ := getModuleHandle.Call(0)
-	
+
 	className := syscall.StringToUTF16Ptr("AHCLITrayWindow")
-	
+
 	// Register window class
 	wc := WNDCLASSEX{
 		CbSize:        uint32(unsafe.Sizeof(WNDCLASSEX{})),
@@ -180,29 +180,29 @@ func createHiddenWindow() error {
 		HInstance:     hInstance,
 		LpszClassName: className,
 	}
-	
+
 	atom, _, _ := registerClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	if atom == 0 {
 		return fmt.Errorf("failed to register window class")
 	}
-	
+
 	// Create hidden window
 	hwnd, _, _ = createWindowEx.Call(
-		0,                    // dwExStyle
+		0,                                  // dwExStyle
 		uintptr(unsafe.Pointer(className)), // lpClassName
-		0,                    // lpWindowName
-		0,                    // dwStyle
-		0, 0, 0, 0,          // x, y, width, height
-		0,                    // hWndParent
-		0,                    // hMenu
-		hInstance,            // hInstance
-		0,                    // lpParam
+		0,                                  // lpWindowName
+		0,                                  // dwStyle
+		0, 0, 0, 0,                         // x, y, width, height
+		0,         // hWndParent
+		0,         // hMenu
+		hInstance, // hInstance
+		0,         // lpParam
 	)
-	
+
 	if hwnd == 0 {
 		return fmt.Errorf("failed to create hidden window")
 	}
-	
+
 	return nil
 }
 
@@ -231,7 +231,7 @@ func runMessageLoop() {
 		}
 		// bRet == -1 is error, but we'll continue
 	}
-	
+
 	// Cleanup before exit
 	CleanupTray()
 	LogInfo("Message loop ended, AHCLI shutting down")
