@@ -3,13 +3,15 @@
 package main
 
 import (
+	"ahcli/common/logger"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 )
 
 type Channel struct {
-	GUID        string `json:"guid"`         // NEW: Permanent channel identifier
+	GUID        string `json:"guid"`         // Permanent channel identifier
 	Name        string `json:"name"`         // Human-readable name (changeable)
 	AllowSpeak  bool   `json:"allow_speak"`  // Can users transmit voice
 	AllowListen bool   `json:"allow_listen"` // Can users receive voice
@@ -29,10 +31,13 @@ type ServerConfig struct {
 	AdminKey   string     `json:"admin_key"`
 	MOTD       string     `json:"motd"`
 	Channels   []Channel  `json:"channels"`
-	Chat       ChatConfig `json:"chat"` // NEW: Chat configuration
+	Chat       ChatConfig `json:"chat"`
 }
 
-var serverConfig *ServerConfig
+var (
+	serverConfig *ServerConfig
+	debugMode    = flag.Bool("debug", false, "Enable debug logging")
+)
 
 func loadServerConfig(path string) (*ServerConfig, error) {
 	data, err := os.ReadFile(path)
@@ -47,39 +52,63 @@ func loadServerConfig(path string) (*ServerConfig, error) {
 }
 
 func main() {
-	// Initialize logging first (parses --debug flag)
-	InitLogger()
-	defer CloseLogger()
+	// Parse command line flags FIRST
+	flag.Parse()
 
+	// Initialize unified logging system
+	err := logger.Init("server")
+	if err != nil {
+		fmt.Printf("Failed to initialize logging: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Close()
+
+	// Set debug mode from command line flag
+	logger.SetDebugMode(*debugMode)
+
+	logger.Info("=== AHCLI Server Starting ===")
+	if *debugMode {
+		logger.Debug("Debug mode enabled")
+	}
+	logger.Info("Log file: %s", logger.GetLogPath())
+
+	// Load configuration
 	config, err := loadServerConfig("config.json")
 	if err != nil {
-		fmt.Println("Error loading config:", err)
-		LogError("Error loading config: %v", err)
+		logger.Fatal("Failed to load config: %v", err)
 		return
 	}
 
 	serverConfig = config
-
-	LogInfo("Server config loaded successfully")
-	LogDebug("Server Name: %s", config.ServerName)
-	LogDebug("Port: %d", config.ListenPort)
-	LogDebug("MOTD: %s", config.MOTD)
-	LogDebug("Chat enabled: %t", config.Chat.Enabled)
+	logger.Info("Server config loaded successfully")
+	logger.Debug("Server Name: %s", config.ServerName)
+	logger.Debug("Port: %d", config.ListenPort)
+	logger.Debug("MOTD: %s", config.MOTD)
+	logger.Debug("Chat enabled: %t", config.Chat.Enabled)
 
 	for _, ch := range config.Channels {
-		LogDebug("Channel: %s (GUID: %s, speak: %t, listen: %t)",
+		logger.Debug("Channel: %s (GUID: %s, speak: %t, listen: %t)",
 			ch.Name, ch.GUID, ch.AllowSpeak, ch.AllowListen)
 	}
 
 	// Initialize chat storage system
 	err = InitChatStorage(config)
 	if err != nil {
-		fmt.Printf("Failed to initialize chat system: %v\n", err)
-		LogError("Failed to initialize chat system: %v", err)
+		logger.Fatal("Failed to initialize chat system: %v", err)
 		return
 	}
 	defer CloseChatStorage()
+	logger.Info("Chat system initialized - log: %s, max messages: %d",
+		config.Chat.LogFile, config.Chat.MaxMessages)
 
-	LogInfo("Starting UDP server on port %d", config.ListenPort)
+	// Initialize server crypto system
+	err = InitServerCrypto()
+	if err != nil {
+		logger.Fatal("Failed to initialize crypto system: %v", err)
+		return
+	}
+	logger.Info("Server crypto system initialized")
+
+	logger.Info("Starting UDP server on port %d", config.ListenPort)
 	startUDPServer(config)
 }

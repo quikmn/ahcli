@@ -1,8 +1,8 @@
 // FILE: client/audioprocessor.go
-
 package main
 
 import (
+	"ahcli/common/logger"
 	"container/list"
 	"sync"
 	"time"
@@ -94,14 +94,29 @@ type AudioProcessor struct {
 	// NEW: Bypass functionality
 	bypassProcessing bool
 
-	// Statistics
-	stats AudioStats
+	// Statistics - INTERNAL ONLY (with mutex for thread safety)
+	stats audioStatsInternal
 }
 
-// AudioStats tracks audio processing performance
-type AudioStats struct {
+// audioStatsInternal - internal stats with mutex (NOT exported)
+type audioStatsInternal struct {
 	sync.RWMutex
 
+	// Input stats
+	InputLevel      float32
+	NoiseGateOpen   bool
+	CompressionGain float32
+
+	// Network stats
+	NetworkJitter time.Duration
+
+	// Quality metrics
+	AudioQuality   string  // "Excellent", "Good", "Fair", "Poor"
+	ProcessingLoad float32 // CPU usage estimate
+}
+
+// AudioStats - CLEAN export struct (NO MUTEX)
+type AudioStats struct {
 	// Input stats
 	InputLevel      float32
 	NoiseGateOpen   bool
@@ -119,7 +134,9 @@ type AudioStats struct {
 
 // NewAudioProcessor creates a new audio processor with default settings
 func NewAudioProcessor() *AudioProcessor {
-	return &AudioProcessor{
+	logger.Info("Creating new audio processor with premium settings")
+
+	processor := &AudioProcessor{
 		noiseGate: &NoiseGate{
 			threshold:   -40.0, // dB
 			attackTime:  2 * time.Millisecond,
@@ -155,11 +172,17 @@ func NewAudioProcessor() *AudioProcessor {
 		// NEW: Initialize bypass to false
 		bypassProcessing: false,
 	}
+
+	logger.Debug("Audio processor initialized - NoiseGate: %t, Compressor: %t, MakeupGain: %t, JitterBuffer: %t",
+		processor.enableNoiseGate, processor.enableCompressor, processor.enableMakeupGain, processor.enableJitterBuffer)
+
+	return processor
 }
 
 // ProcessInputAudio processes audio from microphone before transmission
 func (ap *AudioProcessor) ProcessInputAudio(samples []int16) []int16 {
 	if len(samples) == 0 {
+		logger.Debug("Empty audio samples received, returning as-is")
 		return samples
 	}
 
@@ -195,6 +218,7 @@ func (ap *AudioProcessor) applyMakeupGain(samples []int16) []int16 {
 	// Convert dB to linear gain if needed
 	if mg.gainLinear == 0 {
 		mg.gainLinear = powf(10.0, mg.gainDB/20.0)
+		logger.Debug("Calculated linear gain: %.2f from %.1fdB", mg.gainLinear, mg.gainDB)
 	}
 
 	for i, sample := range samples {
@@ -218,6 +242,7 @@ func (ap *AudioProcessor) applyMakeupGain(samples []int16) []int16 {
 func (ap *AudioProcessor) AddToJitterBuffer(seqNum uint16, data []int16) {
 	if !ap.enableJitterBuffer {
 		// Direct playback if jitter buffer disabled
+		logger.Debug("Jitter buffer disabled, skipping packet %d", seqNum)
 		return
 	}
 
@@ -229,6 +254,7 @@ func (ap *AudioProcessor) AddToJitterBuffer(seqNum uint16, data []int16) {
 		Received:  time.Now(),
 	}
 
+	logger.Debug("Adding packet %d to jitter buffer (%d samples)", seqNum, len(data))
 	ap.jitterBuffer.addPacket(packet)
 }
 
@@ -261,10 +287,12 @@ func (ap *AudioProcessor) applyNoiseGate(samples []int16) []int16 {
 			if !ng.gateOpen {
 				ng.gateOpen = true
 				ng.holdTimer = time.Now().Add(ng.holdTime)
+				logger.Debug("Noise gate opened (envelope: %.4f)", ng.envelope)
 			}
 		} else {
 			if ng.gateOpen && time.Now().After(ng.holdTimer) {
 				ng.gateOpen = false
+				logger.Debug("Noise gate closed (envelope: %.4f)", ng.envelope)
 			}
 		}
 
@@ -348,9 +376,15 @@ func (jb *JitterBuffer) addPacket(packet *AudioPacket) {
 	if jb.expectedSeq != 0 && packet.SeqNum != jb.expectedSeq {
 		if packet.SeqNum > jb.expectedSeq {
 			// Packets were lost
-			jb.packetsLost += int(packet.SeqNum - jb.expectedSeq)
+			lost := int(packet.SeqNum - jb.expectedSeq)
+			jb.packetsLost += lost
+			logger.Debug("Packet loss detected: expected %d, got %d (%d packets lost)",
+				jb.expectedSeq, packet.SeqNum, lost)
+		} else {
+			// Out-of-order packet (late arrival)
+			logger.Debug("Out-of-order packet: expected %d, got %d (late arrival)",
+				jb.expectedSeq, packet.SeqNum)
 		}
-		// Handle out-of-order packets (could be late arrivals)
 	}
 
 	jb.expectedSeq = packet.SeqNum + 1
@@ -376,8 +410,12 @@ func (jb *JitterBuffer) addPacket(packet *AudioPacket) {
 	// Remove old packets (prevent buffer overflow)
 	maxPackets := int(jb.bufferTime / jb.playInterval)
 	for jb.buffer.Len() > maxPackets {
-		jb.buffer.Remove(jb.buffer.Front())
+		removed := jb.buffer.Remove(jb.buffer.Front())
+		removedPacket := removed.(*AudioPacket)
+		logger.Debug("Removed old packet %d from jitter buffer (overflow prevention)", removedPacket.SeqNum)
 	}
+
+	logger.Debug("Jitter buffer now contains %d packets (target: %d)", jb.buffer.Len(), maxPackets)
 }
 
 // getNextFrame retrieves the next audio frame when it's time to play
@@ -392,7 +430,7 @@ func (jb *JitterBuffer) getNextFrame() []int16 {
 		if jb.buffer.Len() > 0 {
 			// Start playing immediately when we have packets
 			jb.nextPlayTime = now
-			LogDebug("Jitter buffer initialized - starting playback immediately")
+			logger.Info("Jitter buffer initialized - starting playback immediately with %d packets", jb.buffer.Len())
 		} else {
 			// No packets yet, wait
 			return nil
@@ -410,7 +448,7 @@ func (jb *JitterBuffer) getNextFrame() []int16 {
 	// Get next packet from buffer
 	if jb.buffer.Len() == 0 {
 		// Buffer underrun - return silence and log it
-		LogDebug("Jitter buffer underrun - returning silence")
+		logger.Debug("Jitter buffer underrun - returning silence")
 		return make([]int16, framesPerBuffer)
 	}
 
@@ -419,12 +457,14 @@ func (jb *JitterBuffer) getNextFrame() []int16 {
 	jb.buffer.Remove(element)
 	packet := element.Value.(*AudioPacket)
 
-	LogDebug("Jitter buffer: playing packet with %d samples", len(packet.Data))
+	logger.Debug("Jitter buffer: playing packet %d with %d samples", packet.SeqNum, len(packet.Data))
 	return packet.Data
 }
 
 // adaptBufferSize adjusts buffer size based on network conditions
 func (jb *JitterBuffer) adaptBufferSize() {
+	oldBufferTime := jb.bufferTime
+
 	// Calculate current packet loss rate
 	if jb.packetsTotal > 0 {
 		jb.packetLoss = float32(jb.packetsLost) / float32(jb.packetsTotal)
@@ -435,6 +475,14 @@ func (jb *JitterBuffer) adaptBufferSize() {
 		jb.bufferTime = minDuration(jb.bufferTime+10*time.Millisecond, jb.maxBuffer)
 	} else if jb.packetLoss < 0.01 { // Less than 1% packet loss
 		jb.bufferTime = maxDuration(jb.bufferTime-5*time.Millisecond, jb.minBuffer)
+	}
+
+	// Log buffer size changes
+	if jb.bufferTime != oldBufferTime {
+		logger.Debug("Jitter buffer size adapted: %.1fms -> %.1fms (packet loss: %.2f%%)",
+			float64(oldBufferTime)/float64(time.Millisecond),
+			float64(jb.bufferTime)/float64(time.Millisecond),
+			jb.packetLoss*100)
 	}
 }
 
@@ -452,11 +500,11 @@ func (ap *AudioProcessor) updateInputStats(original, processed []int16) {
 	ap.stats.InputLevel = rms
 
 	// Update audio quality assessment
-	if ap.stats.PacketLoss < 0.01 && ap.stats.NetworkJitter < 30*time.Millisecond {
+	if ap.jitterBuffer.packetLoss < 0.01 && ap.stats.NetworkJitter < 30*time.Millisecond {
 		ap.stats.AudioQuality = "Excellent"
-	} else if ap.stats.PacketLoss < 0.05 && ap.stats.NetworkJitter < 60*time.Millisecond {
+	} else if ap.jitterBuffer.packetLoss < 0.05 && ap.stats.NetworkJitter < 60*time.Millisecond {
 		ap.stats.AudioQuality = "Good"
-	} else if ap.stats.PacketLoss < 0.10 {
+	} else if ap.jitterBuffer.packetLoss < 0.10 {
 		ap.stats.AudioQuality = "Fair"
 	} else {
 		ap.stats.AudioQuality = "Poor"
@@ -465,12 +513,12 @@ func (ap *AudioProcessor) updateInputStats(original, processed []int16) {
 	ap.stats.Unlock()
 }
 
-// GetStats returns current audio processing statistics
+// GetStats returns current audio processing statistics - FIXED (no mutex copy)
 func (ap *AudioProcessor) GetStats() AudioStats {
 	ap.stats.RLock()
 	defer ap.stats.RUnlock()
 
-	// Copy stats to avoid race conditions
+	// Return CLEAN copy without any mutex - FIXED
 	return AudioStats{
 		InputLevel:      ap.stats.InputLevel,
 		NoiseGateOpen:   ap.stats.NoiseGateOpen,
@@ -537,9 +585,12 @@ func (ap *AudioProcessor) SetBypass(bypass bool) {
 	ap.stats.Lock()
 	defer ap.stats.Unlock()
 
+	oldBypass := ap.bypassProcessing
 	ap.bypassProcessing = bypass
 
-	LogInfo("Audio processing bypass set to: %t", bypass)
+	if oldBypass != bypass {
+		logger.Info("Audio processing bypass changed: %t -> %t", oldBypass, bypass)
+	}
 }
 
 // IsBypassed returns whether audio processing is currently bypassed

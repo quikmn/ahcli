@@ -1,8 +1,8 @@
 // FILE: client/main.go
-
 package main
 
 import (
+	"ahcli/common/logger"
 	"fmt"
 	"os"
 	"syscall"
@@ -13,88 +13,100 @@ import (
 )
 
 func main() {
-	// Initialize logging
-	InitLogger()
-	defer CloseLogger()
-
-	// MINIMAL ADDITION: Also log to file for debugging
-	logFile, logErr := os.OpenFile("client.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
-	if logErr == nil {
-		defer logFile.Close()
-		// Redirect some output to file for debugging
-		go func() {
-			fmt.Fprintln(logFile, "=== CLIENT LOG STARTED ===")
-			logFile.Sync()
-		}()
+	// Initialize unified logging system FIRST
+	err := logger.Init("client")
+	if err != nil {
+		fmt.Printf("Failed to initialize logging: %v\n", err)
+		os.Exit(1)
 	}
+	defer logger.Close()
+
+	// Enable debug mode for development
+	logger.SetDebugMode(true)
+
+	logger.Info("=== AHCLI Client Starting ===")
+	logger.Info("Log file: %s", logger.GetLogPath())
 
 	// Initialize application state
 	InitAppState()
-	LogInfo("Application state initialized")
+	logger.Debug("Application state initialized")
 
 	// Initialize PortAudio globally
-	err := portaudio.Initialize()
+	err = portaudio.Initialize()
 	if err != nil {
-		LogError("PortAudio init failed: %v", err)
+		logger.Fatal("PortAudio init failed: %v", err)
 		return
 	}
 	defer portaudio.Terminate()
+	logger.Info("PortAudio initialized successfully")
 
 	// Load config
 	config, err := loadClientConfig("settings.config")
 	if err != nil {
-		LogError("Error loading config: %v", err)
+		logger.Fatal("Error loading config: %v", err)
 		return
 	}
 
 	// Store config reference for audio controls
 	currentConfig = config
+	logger.Info("Client config loaded successfully")
 
-	LogInfo("Client config loaded successfully")
-
-	// Apply audio processing settings from config
-	LogInfo("Audio preset: %s", config.AudioProcessing.Preset)
-	LogInfo("Noise gate: enabled=%t, threshold=%.1fdB",
+	// Log audio processing settings
+	logger.Info("Audio preset: %s", config.AudioProcessing.Preset)
+	logger.Debug("Noise gate: enabled=%t, threshold=%.1fdB",
 		config.AudioProcessing.NoiseGate.Enabled,
 		config.AudioProcessing.NoiseGate.ThresholdDB)
-	LogInfo("Compressor: enabled=%t, threshold=%.1fdB, ratio=%.1f",
+	logger.Debug("Compressor: enabled=%t, threshold=%.1fdB, ratio=%.1f",
 		config.AudioProcessing.Compressor.Enabled,
 		config.AudioProcessing.Compressor.ThresholdDB,
 		config.AudioProcessing.Compressor.Ratio)
-	LogInfo("Makeup gain: enabled=%t, gain=%.1fdB",
+	logger.Debug("Makeup gain: enabled=%t, gain=%.1fdB",
 		config.AudioProcessing.MakeupGain.Enabled,
 		config.AudioProcessing.MakeupGain.GainDB)
 
 	// Set PTT key from config
 	pttKeyCode = keyNameToVKCode(config.PTTKey)
 	if pttKeyCode == 0 {
-		LogError("Unsupported PTT key: %s", config.PTTKey)
+		logger.Fatal("Unsupported PTT key: %s", config.PTTKey)
 		return
 	}
 
 	StartPTTListener()
+	logger.Info("PTT listener started (key: %s)", config.PTTKey)
 
-	// Initialize audio system
-	LogInfo("Initializing audio system...")
-	err = InitAudio()
+	// Initialize client crypto system
+	err = InitClientCrypto()
 	if err != nil {
-		LogError("Audio initialization failed: %v", err)
+		logger.Fatal("Failed to initialize crypto system: %v", err)
 		return
 	}
-	LogInfo("Audio initialized successfully")
+	if clientCrypto == nil {
+		logger.Fatal("CLIENT CRYPTO IS NIL!")
+		return
+	} else {
+		logger.Info("Client crypto system initialized successfully")
+	}
+
+	// Initialize audio system
+	logger.Info("Initializing audio system...")
+	err = InitAudio()
+	if err != nil {
+		logger.Fatal("Audio initialization failed: %v", err)
+		return
+	}
+	logger.Info("Audio initialized successfully")
 
 	// Apply audio config to processor AFTER audio init
 	applyAudioConfigToProcessor(config)
-	LogInfo("Audio processing settings applied from config")
+	logger.Info("Audio processing settings applied from config")
 
 	// Initialize Web UI server
 	port, err := StartWebServer()
 	if err != nil {
-		LogError("Web server failed: %v", err)
-		fmt.Println("Web server failed:", err)
+		logger.Fatal("Web server failed: %v", err)
 		return
 	}
-	LogInfo("Web server started on port %d", port)
+	logger.Info("Web server started on port %d", port)
 
 	// PURE APPSTATE: Only update AppState - observer handles WebTUI
 	appState.SetPTTKey(config.PTTKey)
@@ -107,17 +119,18 @@ func main() {
 	// Create hidden window for tray messages
 	err = createHiddenWindow()
 	if err != nil {
-		LogError("Failed to create hidden window: %v", err)
+		logger.Fatal("Failed to create hidden window: %v", err)
 		return
 	}
+	logger.Debug("Hidden window created for tray message handling")
 
 	// Initialize system tray
 	err = InitTray(port)
 	if err != nil {
-		LogError("Failed to initialize system tray: %v", err)
+		logger.Fatal("Failed to initialize system tray: %v", err)
 		return
 	}
-	LogInfo("System tray initialized")
+	logger.Info("System tray initialized")
 
 	// Set up AppState observer to update tray when connection changes
 	appState.AddObserver(func(change StateChange) {
@@ -129,6 +142,7 @@ func main() {
 			}
 		}
 	})
+	logger.Debug("AppState observer registered for tray icon updates")
 
 	// Test audio pipeline
 	go func() {
@@ -139,11 +153,13 @@ func main() {
 	// Start connection in background
 	go func() {
 		// PURE APPSTATE: Only update AppState - observer handles WebTUI
-		appState.AddMessage(fmt.Sprintf("Connecting to %s...", config.Servers[config.PreferredServer].IP), "info")
+		serverAddr := config.Servers[config.PreferredServer].IP
+		appState.AddMessage(fmt.Sprintf("Connecting to %s...", serverAddr), "info")
+		logger.Info("Attempting connection to %s", serverAddr)
 
 		err := connectToServer(config)
 		if err != nil {
-			LogError("Connection error: %v", err)
+			logger.Error("Connection error: %v", err)
 
 			// PURE APPSTATE: Only update AppState - observer handles WebTUI
 			appState.AddMessage(fmt.Sprintf("Connection error: %s", err.Error()), "error")
@@ -153,9 +169,9 @@ func main() {
 		}
 	}()
 
-	LogInfo("AHCLI running in background - check system tray")
-	LogInfo("Left-click tray icon to open UI, right-click for menu")
-	LogInfo("🎯 SEPARATION OF CONCERNS COMPLETE - Core systems are now pure AppState!")
+	logger.Info("AHCLI running in background - check system tray")
+	logger.Info("Left-click tray icon to open UI, right-click for menu")
+	logger.Info("🎯 UNIFIED LOGGING MIGRATION COMPLETE - All systems now use common/logger!")
 
 	// Auto-launch UI on startup
 	go func() {
@@ -169,6 +185,8 @@ func main() {
 
 // createHiddenWindow creates an invisible window to receive tray messages
 func createHiddenWindow() error {
+	logger.Debug("Creating hidden window for tray message handling")
+
 	hInstance, _, _ := getModuleHandle.Call(0)
 
 	className := syscall.StringToUTF16Ptr("AHCLITrayWindow")
@@ -183,6 +201,7 @@ func createHiddenWindow() error {
 
 	atom, _, _ := registerClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	if atom == 0 {
+		logger.Error("Failed to register window class")
 		return fmt.Errorf("failed to register window class")
 	}
 
@@ -200,9 +219,11 @@ func createHiddenWindow() error {
 	)
 
 	if hwnd == 0 {
+		logger.Error("Failed to create hidden window")
 		return fmt.Errorf("failed to create hidden window")
 	}
 
+	logger.Debug("Hidden window created successfully")
 	return nil
 }
 
@@ -210,6 +231,7 @@ func createHiddenWindow() error {
 func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_TRAYICON:
+		logger.Debug("Received tray icon message: %d", lParam)
 		HandleTrayMessage(lParam)
 		return 0
 	default:
@@ -220,10 +242,13 @@ func windowProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 
 // runMessageLoop runs the Windows message loop
 func runMessageLoop() {
+	logger.Debug("Starting Windows message loop")
+
 	var msg MSG
 	for {
 		bRet, _, _ := getMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if bRet == 0 { // WM_QUIT
+			logger.Debug("Received WM_QUIT message")
 			break
 		} else if bRet == 1 { // Regular message
 			translateMessage.Call(uintptr(unsafe.Pointer(&msg)))
@@ -234,5 +259,5 @@ func runMessageLoop() {
 
 	// Cleanup before exit
 	CleanupTray()
-	LogInfo("Message loop ended, AHCLI shutting down")
+	logger.Info("Message loop ended, AHCLI shutting down")
 }

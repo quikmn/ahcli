@@ -3,6 +3,7 @@
 package main
 
 import (
+	"ahcli/common/logger"
 	"bufio"
 	"crypto/rand"
 	"encoding/json"
@@ -46,7 +47,7 @@ var chatStorage *ChatStorage
 // InitChatStorage initializes the chat system
 func InitChatStorage(config *ServerConfig) error {
 	if !config.Chat.Enabled {
-		LogInfo("Chat system disabled in configuration")
+		logger.Info("Chat system disabled in configuration")
 		return nil
 	}
 
@@ -74,11 +75,11 @@ func InitChatStorage(config *ServerConfig) error {
 	// Load existing chat history from log file
 	err = chatStorage.loadHistoryFromLog()
 	if err != nil {
-		LogError("Failed to load chat history: %v", err)
+		logger.Error("Failed to load chat history: %v", err)
 		// Don't fail initialization, just log the error
 	}
 
-	LogInfo("Chat system initialized - log file: %s, max messages: %d", chatStorage.logFile, chatStorage.maxMessages)
+	logger.Info("Chat system initialized - log file: %s, max messages: %d", chatStorage.logFile, chatStorage.maxMessages)
 	return nil
 }
 
@@ -94,7 +95,7 @@ func (cs *ChatStorage) ensureChannelGUIDs(config *ServerConfig) error {
 			}
 			config.Channels[i].GUID = guid
 			needsUpdate = true
-			LogInfo("Generated GUID for channel '%s': %s", config.Channels[i].Name, guid)
+			logger.Info("Generated GUID for channel '%s': %s", config.Channels[i].Name, guid)
 		}
 	}
 
@@ -102,10 +103,10 @@ func (cs *ChatStorage) ensureChannelGUIDs(config *ServerConfig) error {
 	if needsUpdate {
 		err := saveServerConfig("config.json", config)
 		if err != nil {
-			LogError("Failed to save config with new GUIDs: %v", err)
+			logger.Error("Failed to save config with new GUIDs: %v", err)
 			// Don't fail, GUIDs are still in memory
 		} else {
-			LogInfo("Saved config with generated GUIDs")
+			logger.Info("Saved config with generated GUIDs")
 		}
 	}
 
@@ -153,17 +154,17 @@ func (cs *ChatStorage) StoreMessage(guid, channel, username, message string) err
 		// Keep the newest messages
 		keepFrom := len(cs.messages[guid]) - (cs.maxMessages - 10000) // Drop 10k when limit reached
 		cs.messages[guid] = cs.messages[guid][keepFrom:]
-		LogDebug("Circular buffer: dropped old messages for channel %s, now have %d messages", channel, len(cs.messages[guid]))
+		logger.Debug("Circular buffer: dropped old messages for channel %s, now have %d messages", channel, len(cs.messages[guid]))
 	}
 
 	// Write to log file
 	err := cs.writeToLog(chatMsg)
 	if err != nil {
-		LogError("Failed to write chat message to log: %v", err)
+		logger.Error("Failed to write chat message to log: %v", err)
 		// Don't fail the store operation, message is still in memory
 	}
 
-	LogDebug("Stored chat message in %s (%s): <%s> %s", channel, guid, username, message)
+	logger.Debug("Stored chat message in %s (%s): <%s> %s", channel, guid, username, message)
 	return nil
 }
 
@@ -228,7 +229,7 @@ func (cs *ChatStorage) loadHistoryFromLog() error {
 	file, err := os.Open(cs.logFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			LogInfo("Chat log file doesn't exist yet, starting fresh")
+			logger.Info("Chat log file doesn't exist yet, starting fresh")
 			return nil
 		}
 		return err
@@ -248,7 +249,7 @@ func (cs *ChatStorage) loadHistoryFromLog() error {
 
 		msg, err := cs.parseLogLine(line)
 		if err != nil {
-			LogDebug("Failed to parse log line %d: %v", lineCount, err)
+			logger.Debug("Failed to parse log line %d: %v", lineCount, err)
 			continue
 		}
 
@@ -271,7 +272,7 @@ func (cs *ChatStorage) loadHistoryFromLog() error {
 		})
 	}
 
-	LogInfo("Loaded %d chat messages from log file (%d lines processed)", loadedCount, lineCount)
+	logger.Info("Loaded %d chat messages from log file (%d lines processed)", loadedCount, lineCount)
 	return nil
 }
 
@@ -364,7 +365,7 @@ func GetChannelName(guid string) string {
 func CloseChatStorage() {
 	if chatStorage != nil && chatStorage.logFileHandle != nil {
 		chatStorage.logFileHandle.Close()
-		LogInfo("Chat storage closed")
+		logger.Info("Chat storage closed")
 	}
 }
 

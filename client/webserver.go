@@ -1,8 +1,8 @@
 // FILE: client/webserver.go
-
 package main
 
 import (
+	"ahcli/common/logger"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -79,25 +79,28 @@ var (
 func StartWebServer() (int, error) {
 	// Find available port
 	port := findAvailablePort(8080)
+	logger.Debug("Found available port: %d", port)
 
 	// Serve embedded files with proper routing
 	webFS, err := fs.Sub(webFiles, "web")
 	if err != nil {
-		LogError("Failed to create web filesystem: %v", err)
+		logger.Error("Failed to create web filesystem: %v", err)
 		return 0, err
 	}
 	http.Handle("/", http.FileServer(http.FS(webFS)))
+	logger.Debug("Web filesystem configured with embedded files")
 
 	// API endpoints
 	http.HandleFunc("/api/state", handleAPIState)
 	http.HandleFunc("/api/command", handleAPICommand)
 	http.HandleFunc("/ws", handleWebSocket)
+	logger.Debug("Web API endpoints registered")
 
-	LogInfo("Starting web server on port %d", port)
+	logger.Info("Starting web server on port %d", port)
 
 	go func() {
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
-			LogError("Web server failed: %v", err)
+			logger.Error("Web server failed: %v", err)
 		}
 	}()
 
@@ -113,13 +116,13 @@ func setupAppStateObservers() {
 		return // Only setup once
 	}
 
-	LogInfo("Setting up WebTUI as AppState observer...")
+	logger.Info("Setting up WebTUI as AppState observer...")
 
 	appState.AddObserver(func(change StateChange) {
 		switch change.Type {
 		case "ptt":
 			if active, ok := change.Data.(bool); ok {
-				LogDebug("Observer: PTT state changed to %t", active)
+				logger.Debug("Observer: PTT state changed to %t", active)
 				webTUI.Lock()
 				webTUI.PTTActive = active
 				webTUI.Unlock()
@@ -136,7 +139,7 @@ func setupAppStateObservers() {
 
 		case "connection":
 			if data, ok := change.Data.(map[string]interface{}); ok {
-				LogDebug("Observer: Connection state changed")
+				logger.Debug("Observer: Connection state changed")
 				webTUI.Lock()
 				if connected, ok := data["connected"].(bool); ok {
 					webTUI.Connected = connected
@@ -156,7 +159,7 @@ func setupAppStateObservers() {
 
 		case "channel":
 			if channel, ok := change.Data.(string); ok {
-				LogDebug("Observer: Channel changed to %s", channel)
+				logger.Debug("Observer: Channel changed to %s", channel)
 				webTUI.Lock()
 				webTUI.CurrentChannel = channel
 				webTUI.Unlock()
@@ -165,7 +168,7 @@ func setupAppStateObservers() {
 
 		case "channels":
 			if channels, ok := change.Data.([]string); ok {
-				LogDebug("Observer: Channels list updated")
+				logger.Debug("Observer: Channels list updated")
 				webTUI.Lock()
 				webTUI.Channels = channels
 				webTUI.Unlock()
@@ -174,7 +177,7 @@ func setupAppStateObservers() {
 
 		case "channel_users":
 			if channelUsers, ok := change.Data.(map[string][]string); ok {
-				LogDebug("Observer: Channel users updated")
+				logger.Debug("Observer: Channel users updated")
 				webTUI.Lock()
 				webTUI.ChannelUsers = channelUsers
 				webTUI.Unlock()
@@ -183,7 +186,7 @@ func setupAppStateObservers() {
 
 		case "message":
 			if msg, ok := change.Data.(AppMessage); ok {
-				LogDebug("Observer: New message - %s", msg.Message)
+				logger.Debug("Observer: New message - %s", msg.Message)
 				webTUI.Lock()
 				webMsg := WebMessage{
 					Timestamp: msg.Timestamp,
@@ -202,7 +205,7 @@ func setupAppStateObservers() {
 
 		case "ptt_key":
 			if keyName, ok := change.Data.(string); ok {
-				LogDebug("Observer: PTT key changed to %s", keyName)
+				logger.Debug("Observer: PTT key changed to %s", keyName)
 				webTUI.Lock()
 				webTUI.PTTKey = keyName
 				webTUI.Unlock()
@@ -230,7 +233,7 @@ func setupAppStateObservers() {
 		// Audio processing stats observer
 		case "audio_stats":
 			if stats, ok := change.Data.(AudioStats); ok {
-				LogDebug("Observer: Audio stats updated - Input: %.1f%%, Gate: %t, Quality: %s",
+				logger.Debug("Observer: Audio stats updated - Input: %.1f%%, Gate: %t, Quality: %s",
 					stats.InputLevel*100, stats.NoiseGateOpen, stats.AudioQuality)
 
 				webTUI.Lock()
@@ -275,21 +278,28 @@ func setupAppStateObservers() {
 	})
 
 	observersSetup = true
-	LogInfo("WebTUI observers setup complete - now pure observer of AppState!")
+	logger.Info("WebTUI observers setup complete - now pure observer of AppState!")
 }
 
 func findAvailablePort(startPort int) int {
+	logger.Debug("Searching for available port starting from %d", startPort)
+
 	for port := startPort; port < startPort+100; port++ {
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err == nil {
 			listener.Close()
+			logger.Debug("Found available port: %d", port)
 			return port
 		}
 	}
+
+	logger.Warn("No available ports found, falling back to %d", startPort)
 	return startPort // fallback
 }
 
 func handleAPIState(w http.ResponseWriter, r *http.Request) {
+	logger.Debug("API state request from %s", r.RemoteAddr)
+
 	webTUI.RLock()
 	defer webTUI.RUnlock()
 
@@ -299,6 +309,7 @@ func handleAPIState(w http.ResponseWriter, r *http.Request) {
 
 func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
+		logger.Debug("API command rejected: method %s not allowed", r.Method)
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
@@ -309,9 +320,12 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		logger.Error("Invalid JSON in API command: %v", err)
 		http.Error(w, "Invalid JSON", 400)
 		return
 	}
+
+	logger.Info("API command received: %s with args: %s", cmd.Command, cmd.Args)
 
 	switch cmd.Command {
 	case "join":
@@ -319,6 +333,7 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 		appState.AddMessage(fmt.Sprintf("Joining channel: %s", cmd.Args), "info")
 
 	case "quit":
+		logger.Info("Quit command received from web interface")
 		appState.AddMessage("Disconnecting...", "info")
 		// Could trigger graceful shutdown here
 
@@ -342,6 +357,7 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 		handleChatCommand(cmd.Args)
 
 	default:
+		logger.Error("Unknown API command: %s", cmd.Command)
 		appState.AddMessage(fmt.Sprintf("Unknown command: %s", cmd.Command), "error")
 	}
 
@@ -351,10 +367,11 @@ func handleAPICommand(w http.ResponseWriter, r *http.Request) {
 // NEW: Handle chat messages from the web UI
 func handleChatCommand(message string) {
 	if message == "" {
+		logger.Debug("Empty chat message received, ignoring")
 		return
 	}
 
-	LogInfo("Web UI chat message: %s", message)
+	logger.Info("Web UI chat message: %s", message)
 
 	// Send to server via the network layer
 	sendChatMessage(message)
@@ -365,10 +382,10 @@ func handleChatCommand(message string) {
 
 // Audio preset handler
 func handleAudioPreset(preset string) {
-	LogInfo("Changing audio preset to: %s", preset)
+	logger.Info("Changing audio preset to: %s", preset)
 
 	if currentConfig == nil {
-		LogError("No config loaded for audio preset change")
+		logger.Error("No config loaded for audio preset change")
 		appState.AddMessage("Error: Configuration not loaded", "error")
 		return
 	}
@@ -386,10 +403,10 @@ func handleAudioPreset(preset string) {
 
 	// Save config to file
 	if err := saveClientConfig("settings.config", currentConfig); err != nil {
-		LogError("Failed to save audio preset: %v", err)
+		logger.Error("Failed to save audio preset: %v", err)
 		appState.AddMessage("Failed to save audio settings", "error")
 	} else {
-		LogInfo("Audio preset '%s' applied and saved", preset)
+		logger.Info("Audio preset '%s' applied and saved", preset)
 		appState.AddMessage(fmt.Sprintf("Audio preset changed to: %s", preset), "success")
 	}
 
@@ -405,14 +422,14 @@ func handleAudioSetting(argsJSON string) {
 	}
 
 	if err := json.Unmarshal([]byte(argsJSON), &setting); err != nil {
-		LogError("Invalid audio setting JSON: %v", err)
+		logger.Error("Invalid audio setting JSON: %v", err)
 		return
 	}
 
-	LogInfo("Updating audio setting: %s.%s = %v", setting.Section, setting.Param, setting.Value)
+	logger.Info("Updating audio setting: %s.%s = %v", setting.Section, setting.Param, setting.Value)
 
 	if currentConfig == nil {
-		LogError("No config loaded for audio setting change")
+		logger.Error("No config loaded for audio setting change")
 		return
 	}
 
@@ -480,9 +497,9 @@ func handleAudioSetting(argsJSON string) {
 
 	// Save config to file
 	if err := saveClientConfig("settings.config", currentConfig); err != nil {
-		LogError("Failed to save audio setting: %v", err)
+		logger.Error("Failed to save audio setting: %v", err)
 	} else {
-		LogDebug("Audio setting saved: %s.%s = %v", setting.Section, setting.Param, setting.Value)
+		logger.Debug("Audio setting saved: %s.%s = %v", setting.Section, setting.Param, setting.Value)
 	}
 
 	broadcastUpdate()
@@ -490,7 +507,7 @@ func handleAudioSetting(argsJSON string) {
 
 // Test microphone handler
 func handleTestMicrophone() {
-	LogInfo("Testing microphone audio levels")
+	logger.Info("Testing microphone audio levels")
 	appState.AddMessage("🎤 Testing microphone - speak now!", "info")
 
 	// Trigger audio pipeline test
@@ -504,40 +521,49 @@ func handleTestMicrophone() {
 // Save custom preset handler
 func handleSaveCustomPreset() {
 	if currentConfig == nil {
-		LogError("No config to save custom preset")
+		logger.Error("No config to save custom preset")
 		appState.AddMessage("Error: No configuration loaded", "error")
 		return
 	}
 
-	LogInfo("Saving custom audio preset")
+	logger.Info("Saving custom audio preset")
 
 	// Save current settings as custom preset
 	if err := saveClientConfig("settings.config", currentConfig); err != nil {
-		LogError("Failed to save custom preset: %v", err)
+		logger.Error("Failed to save custom preset: %v", err)
 		appState.AddMessage("Failed to save custom preset", "error")
 	} else {
-		LogInfo("Custom audio preset saved successfully")
+		logger.Info("Custom audio preset saved successfully")
 		appState.AddMessage("💾 Custom preset saved!", "success")
 	}
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	logger.Debug("WebSocket connection attempt from %s", r.RemoteAddr)
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		LogError("WebSocket upgrade failed: %v", err)
+		logger.Error("WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer conn.Close()
 
 	wsMutex.Lock()
 	wsClients[conn] = true
+	clientCount := len(wsClients)
 	wsMutex.Unlock()
+
+	logger.Info("WebSocket client connected from %s (total: %d)", r.RemoteAddr, clientCount)
 
 	// Send initial state
 	webTUI.RLock()
 	initialState := *webTUI
 	webTUI.RUnlock()
-	conn.WriteJSON(initialState)
+
+	if err := conn.WriteJSON(initialState); err != nil {
+		logger.Error("Failed to send initial state to WebSocket client: %v", err)
+		return
+	}
 
 	// Keep connection alive and handle disconnection
 	for {
@@ -545,7 +571,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			wsMutex.Lock()
 			delete(wsClients, conn)
+			remainingClients := len(wsClients)
 			wsMutex.Unlock()
+
+			logger.Debug("WebSocket client disconnected from %s (remaining: %d)", r.RemoteAddr, remainingClients)
 			break
 		}
 	}
@@ -559,11 +588,19 @@ func broadcastUpdate() {
 	wsMutex.Lock()
 	defer wsMutex.Unlock()
 
+	activeClients := 0
 	for client := range wsClients {
 		if err := client.WriteJSON(state); err != nil {
+			logger.Debug("WebSocket client write failed, removing: %v", err)
 			client.Close()
 			delete(wsClients, client)
+		} else {
+			activeClients++
 		}
+	}
+
+	if activeClients > 0 {
+		logger.Debug("Broadcasted update to %d WebSocket clients", activeClients)
 	}
 }
 
@@ -635,10 +672,10 @@ func WebTUISetPTTKey(keyName string) {
 func handleBypassToggle(args string) {
 	bypass := args == "true"
 
-	LogInfo("Setting audio processing bypass to: %t", bypass)
+	logger.Info("Setting audio processing bypass to: %t", bypass)
 
 	if audioProcessor == nil {
-		LogError("Audio processor not initialized")
+		logger.Error("Audio processor not initialized")
 		appState.AddMessage("Error: Audio processor not ready", "error")
 		return
 	}
@@ -656,5 +693,5 @@ func handleBypassToggle(args string) {
 		appState.AddMessage("⚙️ Audio processing ACTIVE", "success")
 	}
 
-	LogInfo("Audio processing bypass set to: %t", bypass)
+	logger.Info("Audio processing bypass set to: %t", bypass)
 }

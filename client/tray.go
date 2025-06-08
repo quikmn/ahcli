@@ -1,10 +1,10 @@
 //go:build windows
 
 // FILE: client/tray.go
-
 package main
 
 import (
+	"ahcli/common/logger"
 	"fmt"
 	"os/exec"
 	"syscall"
@@ -18,12 +18,27 @@ var (
 // InitTray initializes the system tray icon
 func InitTray(port int) error {
 	webServerPort = port
+	logger.Info("Initializing system tray icon on port %d", port)
 
-	// Get module handle for icon
-	hInstance, _, _ := getModuleHandle.Call(0)
+	// Load custom application icon
+	logger.Debug("Attempting to load custom icon: ahcli.ico")
+	hIcon, _, _ := loadImage.Call(
+		0, // hInstance (0 for loading from file)
+		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("ahcli.ico"))),
+		1, // IMAGE_ICON
+		0, // cxDesired (0 = default size)
+		0, // cyDesired (0 = default size)
+		LR_LOADFROMFILE,
+	)
 
-	// Load default application icon
-	hIcon, _, _ := loadIcon.Call(hInstance, uintptr(32512)) // IDI_APPLICATION
+	// Fallback to default icon if custom icon fails to load
+	if hIcon == 0 {
+		logger.Debug("Custom icon not found, using default system icon")
+		hInstance, _, _ := getModuleHandle.Call(0)
+		hIcon, _, _ = loadIcon.Call(hInstance, uintptr(32512)) // IDI_APPLICATION
+	} else {
+		logger.Debug("Custom icon loaded successfully")
+	}
 
 	// Create tray icon
 	nid := NOTIFYICONDATA{
@@ -40,27 +55,43 @@ func InitTray(port int) error {
 
 	ret, _, _ := shellNotifyIcon.Call(NIM_ADD, uintptr(unsafe.Pointer(&nid)))
 	if ret == 0 {
+		logger.Error("Failed to create system tray icon")
 		return fmt.Errorf("failed to create tray icon")
 	}
 
-	LogInfo("System tray icon created successfully")
+	logger.Info("System tray icon created successfully")
 	return nil
 }
 
 // UpdateTrayIcon updates the tray icon based on connection status
 func UpdateTrayIcon(connected bool) {
-	// Get module handle
-	hInstance, _, _ := getModuleHandle.Call(0)
+	logger.Debug("Updating tray icon - connected: %t", connected)
 
-	// Use different icons based on connection status
-	var iconID uintptr = 32512 // IDI_APPLICATION (default)
+	var hIcon uintptr
+
+	// Try to load custom icon first
 	if connected {
-		iconID = 32516 // IDI_WINLOGO (connected - green-ish)
-	} else {
-		iconID = 32513 // IDI_ERROR (disconnected - red-ish)
+		// For connected state, try to load custom icon
+		hIcon, _, _ = loadImage.Call(
+			0,
+			uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("ahcli.ico"))),
+			1, 0, 0, LR_LOADFROMFILE,
+		)
+		if hIcon != 0 {
+			logger.Debug("Using custom icon for connected state")
+		}
 	}
 
-	hIcon, _, _ := loadIcon.Call(hInstance, iconID)
+	// Fallback to system icons if custom icon not available
+	if hIcon == 0 {
+		hInstance, _, _ := getModuleHandle.Call(0)
+		var iconID uintptr = 32513 // IDI_ERROR (disconnected - red-ish)
+		if connected {
+			iconID = 32516 // IDI_WINLOGO (connected - green-ish)
+		}
+		hIcon, _, _ = loadIcon.Call(hInstance, iconID)
+		logger.Debug("Using system icon %d for connection state", iconID)
+	}
 
 	nid := NOTIFYICONDATA{
 		CbSize: uint32(unsafe.Sizeof(NOTIFYICONDATA{})),
@@ -78,13 +109,17 @@ func UpdateTrayIcon(connected bool) {
 	copy(nid.SzTip[:], syscall.StringToUTF16(tooltip))
 
 	shellNotifyIcon.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&nid)))
+	logger.Debug("Tray icon updated with tooltip: %s", tooltip)
 }
 
 // ShowTrayMenu shows the context menu when right-clicking the tray icon
 func ShowTrayMenu() {
+	logger.Debug("Showing tray context menu")
+
 	// Create popup menu
 	hMenu, _, _ := createPopupMenu.Call()
 	if hMenu == 0 {
+		logger.Error("Failed to create popup menu")
 		return
 	}
 	defer destroyMenu.Call(hMenu)
@@ -93,6 +128,8 @@ func ShowTrayMenu() {
 	state := appState.GetState()
 	connected := state["connected"].(bool)
 	currentChannel := state["currentChannel"]
+
+	logger.Debug("Building menu - connected: %t, channel: %v", connected, currentChannel)
 
 	// Menu items - keeping it minimal and purposeful
 	menuItems := []struct {
@@ -144,6 +181,8 @@ func ShowTrayMenu() {
 		}
 	}
 
+	logger.Debug("Menu items added: %d total", len(menuItems))
+
 	// Get cursor position
 	var pt POINT
 	getCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
@@ -157,17 +196,19 @@ func ShowTrayMenu() {
 	// Post a message to ourselves to close the menu cleanly
 	postMessage.Call(hwnd, 0, 0, 0)
 
+	logger.Debug("Menu command selected: %d", cmd)
+
 	// Handle menu commands
 	switch cmd {
 	case 1001: // Open UI
-		LogInfo("Menu: Opening Voice Chat UI")
+		logger.Info("Tray menu: Opening Voice Chat UI")
 		openVoiceChatUI()
 	case 1002: // Exit
-		LogInfo("Menu: Exiting application")
+		logger.Info("Tray menu: Exiting application")
 		exitApplication()
 	default:
 		if cmd != 0 {
-			LogInfo("Menu: Unknown command %d", cmd)
+			logger.Debug("Tray menu: Unknown command %d", cmd)
 		}
 	}
 }
@@ -176,7 +217,7 @@ func ShowTrayMenu() {
 func openVoiceChatUI() {
 	url := fmt.Sprintf("http://localhost:%d", webServerPort)
 
-	LogInfo("Opening Voice Chat UI: %s", url)
+	logger.Info("Opening Voice Chat UI: %s", url)
 
 	// Try Chrome app mode first (cleanest)
 	browsers := [][]string{
@@ -186,33 +227,34 @@ func openVoiceChatUI() {
 		{"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "--app=" + url},
 	}
 
-	for _, browser := range browsers {
+	for i, browser := range browsers {
+		logger.Debug("Trying browser %d: %s", i+1, browser[0])
 		cmd := exec.Command(browser[0], browser[1:]...)
 		if err := cmd.Start(); err == nil {
-			LogInfo("Launched browser: %s", browser[0])
-
-			// Update both systems with UI open message
+			logger.Info("Successfully launched browser: %s", browser[0])
 			appState.AddMessage("Voice Chat UI opened", "info")
-			WebTUIAddMessage("Voice Chat UI opened", "info")
 			return
+		} else {
+			logger.Debug("Browser %s failed: %v", browser[0], err)
 		}
 	}
 
 	// Fallback to default browser
-	LogInfo("Opening in default browser...")
-	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-
-	appState.AddMessage("Voice Chat UI opened in default browser", "info")
-	WebTUIAddMessage("Voice Chat UI opened in default browser", "info")
+	logger.Debug("All specific browsers failed, trying default browser")
+	logger.Info("Opening in default browser...")
+	err := exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	if err != nil {
+		logger.Error("Failed to open default browser: %v", err)
+		appState.AddMessage("Failed to open Voice Chat UI", "error")
+	} else {
+		appState.AddMessage("Voice Chat UI opened in default browser", "info")
+	}
 }
 
 // exitApplication performs graceful shutdown
 func exitApplication() {
-	LogInfo("Exit requested from system tray")
-
-	// Update both systems with exit message
+	logger.Info("Exit requested from system tray")
 	appState.AddMessage("AHCLI shutting down...", "info")
-	WebTUIAddMessage("AHCLI shutting down...", "info")
 
 	// Remove tray icon
 	nid := NOTIFYICONDATA{
@@ -220,16 +262,15 @@ func exitApplication() {
 		Hwnd:   hwnd,
 		UID:    trayIconID,
 	}
-	shellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 
-	// TODO: Add graceful cleanup here
-	// - Close audio streams
-	// - Disconnect from server
-	// - Close web server
+	ret, _, _ := shellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
+	if ret != 0 {
+		logger.Debug("Tray icon removed successfully")
+	} else {
+		logger.Error("Failed to remove tray icon")
+	}
 
-	LogInfo("AHCLI shutdown complete")
-
-	// Exit cleanly
+	logger.Info("AHCLI shutdown complete")
 	syscall.Exit(0)
 }
 
@@ -237,20 +278,31 @@ func exitApplication() {
 func HandleTrayMessage(msg uintptr) {
 	switch msg {
 	case WM_RBUTTONUP:
+		logger.Debug("Tray icon right-clicked")
 		ShowTrayMenu()
 	case WM_LBUTTONUP:
-		// Double-click or single click - open UI
+		logger.Debug("Tray icon left-clicked")
+		// Single click - open UI
 		openVoiceChatUI()
+	default:
+		logger.Debug("Unknown tray message: %d", msg)
 	}
 }
 
 // CleanupTray removes the tray icon (called on shutdown)
 func CleanupTray() {
+	logger.Debug("Cleaning up system tray icon")
+
 	nid := NOTIFYICONDATA{
 		CbSize: uint32(unsafe.Sizeof(NOTIFYICONDATA{})),
 		Hwnd:   hwnd,
 		UID:    trayIconID,
 	}
-	shellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
-	LogInfo("System tray icon removed")
+
+	ret, _, _ := shellNotifyIcon.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
+	if ret != 0 {
+		logger.Info("System tray icon removed successfully")
+	} else {
+		logger.Error("Failed to remove system tray icon during cleanup")
+	}
 }

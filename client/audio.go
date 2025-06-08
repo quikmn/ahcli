@@ -1,8 +1,8 @@
 // FILE: client/audio.go
-
 package main
 
 import (
+	"ahcli/common/logger"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -31,7 +31,7 @@ var (
 
 func audioSend(samples []int16) {
 	if serverConn == nil {
-		LogError("Warning: serverConn is nil, cannot send")
+		logger.Error("Warning: serverConn is nil, cannot send")
 		return
 	}
 
@@ -48,7 +48,7 @@ func audioSend(samples []int16) {
 
 	_, err := serverConn.Write(buf)
 	if err != nil {
-		LogError("Error sending audio packet: %v", err)
+		logger.Error("Error sending audio packet: %v", err)
 		appState.AddMessage("Audio send failed", "error")
 	} else {
 		appState.IncrementTX()
@@ -56,7 +56,7 @@ func audioSend(samples []int16) {
 }
 
 func InitAudio() error {
-	LogInfo("InitAudio() entered - Premium Audio Processing Enabled")
+	logger.Info("InitAudio() entered - Premium Audio Processing Enabled")
 	fmt.Println("=== PREMIUM AUDIO INIT STARTED ===") // GUARANTEED CONSOLE OUTPUT
 
 	// MINIMAL ADDITION: Log to file too
@@ -67,7 +67,7 @@ func InitAudio() error {
 
 	// Initialize premium audio processor
 	audioProcessor = NewAudioProcessor()
-	LogInfo("Premium audio processor initialized with noise gate and compression")
+	logger.Info("Premium audio processor initialized with noise gate and compression")
 	fmt.Println("Premium audio processor created")
 
 	// Set up input stream
@@ -90,19 +90,19 @@ func InitAudio() error {
 	if err := inStream.Start(); err != nil {
 		return err
 	}
-	LogInfo("Input stream started successfully")
+	logger.Info("Input stream started successfully")
 	fmt.Println("Audio input stream STARTED")
 
 	// Start output stream
 	if err := outStream.Start(); err != nil {
 		return err
 	}
-	LogInfo("Output stream started successfully")
+	logger.Info("Output stream started successfully")
 	fmt.Println("Audio output stream STARTED")
 
 	// Start enhanced input goroutine with bypass and dual-level tracking
 	go func() {
-		LogInfo("Enhanced audio input goroutine started with bypass capability")
+		logger.Info("Enhanced audio input goroutine started with bypass capability")
 		var lastPTTState bool
 		var frameCount int
 
@@ -115,11 +115,11 @@ func InitAudio() error {
 			// Log PTT state changes only
 			if pttActive != lastPTTState {
 				if pttActive {
-					LogInfo("Started transmitting with enhanced audio processing")
+					logger.Info("Started transmitting with enhanced audio processing")
 					frameCount = 0
 					appState.AddMessage("● Transmitting", "ptt")
 				} else {
-					LogInfo("Stopped transmitting")
+					logger.Info("Stopped transmitting")
 					appState.AddMessage("○ Ready", "info")
 				}
 				lastPTTState = pttActive
@@ -127,7 +127,7 @@ func InitAudio() error {
 
 			if pttActive {
 				if err := inStream.Read(); err != nil {
-					LogError("Mic read error: %v", err)
+					logger.Error("Mic read error: %v", err)
 					continue
 				}
 				frameCount++
@@ -173,7 +173,7 @@ func InitAudio() error {
 
 					// Log processing comparison occasionally
 					if frameCount%50 == 0 {
-						LogInfo("Audio Levels - Raw: %.1f%%, Processed: %.1f%%, Bypass: %t",
+						logger.Info("Audio Levels - Raw: %.1f%%, Processed: %.1f%%, Bypass: %t",
 							rawInputLevel*100,
 							appState.GetProcessedInputLevel()*100,
 							audioProcessor.IsBypassed())
@@ -182,7 +182,6 @@ func InitAudio() error {
 
 				// Send the processed (or bypassed) audio
 				audioSend(processedSamples)
-
 			} else {
 				// Reset levels when not transmitting
 				appState.SetRawInputLevel(0)
@@ -194,7 +193,7 @@ func InitAudio() error {
 
 	// Start enhanced playback goroutine with visualization support
 	go func() {
-		LogInfo("Enhanced playback goroutine started with visualization support")
+		logger.Info("Enhanced playback goroutine started with visualization support")
 		fmt.Println("=== ENHANCED PLAYBACK GOROUTINE STARTED ===") // GUARANTEED OUTPUT
 
 		// MINIMAL ADDITION: Log to file
@@ -217,7 +216,7 @@ func InitAudio() error {
 
 				// Log every 10th packet to avoid spam, but catch timing issues
 				if timingLogCount%10 == 0 || timeSinceLastPacket > 40*time.Millisecond || timeSinceLastPacket < 10*time.Millisecond {
-					fmt.Printf("🕐 PACKET TIMING: %v since last (should be ~20ms)\n", timeSinceLastPacket)
+					fmt.Printf("🕕 PACKET TIMING: %v since last (should be ~20ms)\n", timeSinceLastPacket)
 
 					// Log significant timing anomalies to file
 					if logFile, err := os.OpenFile("client.log", os.O_APPEND|os.O_WRONLY, 0666); err == nil {
@@ -248,7 +247,7 @@ func InitAudio() error {
 
 			playbackFrameCount++
 			if maxAmp > 50 && playbackFrameCount%50 == 0 {
-				LogInfo("Playing audio (amplitude: %d)", maxAmp)
+				logger.Info("Playing audio (amplitude: %d)", maxAmp)
 				fmt.Printf("Playing audio (amplitude: %d)\n", maxAmp)
 			}
 
@@ -267,7 +266,7 @@ func InitAudio() error {
 
 			copy(out, samples)
 			if err := outStream.Write(); err != nil {
-				LogError("Playback error: %v", err)
+				logger.Error("Playback error: %v", err)
 				fmt.Printf("PLAYBACK ERROR: %v\n", err)
 				appState.AddMessage("Audio playback failed", "error")
 			}
@@ -293,7 +292,7 @@ func InitAudio() error {
 			}
 
 			// Log detailed stats for debugging
-			LogDebug("Audio Stats - Quality: %s, Latency: %v, Loss: %.2f%%, Jitter: %v",
+			logger.Debug("Audio Stats - Quality: %s, Latency: %v, Loss: %.2f%%, Jitter: %v",
 				stats.AudioQuality, stats.BufferLatency, stats.PacketLoss*100, stats.NetworkJitter)
 		}
 	}()
@@ -332,8 +331,7 @@ func (b *sliceBuffer) Write(p []byte) (int, error) {
 
 // TestAudioPipeline generates a test tone to verify premium audio processing
 func TestAudioPipeline() {
-	LogInfo("Starting premium audio pipeline test with visualization...")
-
+	logger.Info("Starting premium audio pipeline test with visualization...")
 	appState.AddMessage("Testing premium audio processing with visualization...", "info")
 
 	// Generate a more sophisticated test signal
@@ -359,8 +357,8 @@ func TestAudioPipeline() {
 	// Process through premium audio pipeline
 	processedSamples := audioProcessor.ProcessInputAudio(testSamples)
 
-	LogInfo("Generated test tone: %d samples, processed with premium pipeline", len(processedSamples))
-	LogInfo("Max amplitude - Original: %d, Processed: %d", maxAmplitude(testSamples), maxAmplitude(processedSamples))
+	logger.Info("Generated test tone: %d samples, processed with premium pipeline", len(processedSamples))
+	logger.Info("Max amplitude - Original: %d, Processed: %d", maxAmplitude(testSamples), maxAmplitude(processedSamples))
 
 	// Send to jitter buffer for playback
 	audioProcessor.AddToJitterBuffer(9999, processedSamples) // Special sequence for test
@@ -370,7 +368,7 @@ func TestAudioPipeline() {
 	stats.InputLevel = testLevel // Override with actual test level
 	appState.SetAudioStats(stats)
 
-	LogInfo("Premium Audio Test - Quality: %s, Noise Gate: %t, Compression: %.2f, Level: %.1f%%",
+	logger.Info("Premium Audio Test - Quality: %s, Noise Gate: %t, Compression: %.2f, Level: %.1f%%",
 		stats.AudioQuality, stats.NoiseGateOpen, stats.CompressionGain, testLevel*100)
 
 	appState.AddMessage("Premium audio test with visualization completed successfully", "success")
